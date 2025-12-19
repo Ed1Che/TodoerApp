@@ -2,7 +2,7 @@ const GH_AI_ENDPOINT = "https://api.github.com/copilot/assist"; // placeholder
 
 
 export async function breakdownGoalWithGitHubAI(goalDescription: string) {
-const prompt = `Break this goal into a JSON array of 5-12 daily steps: ${goalDescription}`;
+const prompt = `Break this goal into a JSON array of 5 daily steps: ${goalDescription}`;
 try {
 const res = await fetch(GH_AI_ENDPOINT, {
 method: "POST",
