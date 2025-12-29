@@ -2,18 +2,20 @@
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-    Alert,
-    RefreshControl,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Alert,
+  RefreshControl,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import TaskCard from '../../components/TaskCard';
-import { generateDailySchedule } from '../../services/scheduler';
-import { storage } from '../../services/storage';
+import TaskCard from '../components/TaskCard';
+import { getConfigStatus } from '../services/config';
+import { generateDailySchedule } from '../services/scheduler';
+import { storage } from '../services/storage';
+
 
 export function HomeScreen() {
   const router = useRouter();
@@ -28,6 +30,11 @@ export function HomeScreen() {
     loadData();
   }, []);
 
+  useEffect(() => {
+  console.log('Config Status:', getConfigStatus());
+  }, []);
+  
+
   // Add focus listener to reload data when returning to this screen
 
 useFocusEffect(
@@ -35,6 +42,8 @@ useFocusEffect(
     loadData();
   }, [])
 );
+
+
 
   const loadData = async () => {
     try {
