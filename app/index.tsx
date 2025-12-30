@@ -1,6 +1,5 @@
-// app/index.tsx (HomeScreen)
-import { useFocusEffect, useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useState } from 'react';
+import { useNavigation, useRouter } from 'expo-router';
+import React, { useEffect, useState } from 'react';
 import {
   Alert,
   RefreshControl,
@@ -12,10 +11,8 @@ import {
   View,
 } from 'react-native';
 import TaskCard from '../components/TaskCard';
-import { getConfigStatus } from '../services/config';
 import { generateDailySchedule } from '../services/scheduler';
 import { storage } from '../services/storage';
-
 
 export function HomeScreen() {
   const router = useRouter();
@@ -25,24 +22,18 @@ export function HomeScreen() {
   const [dailyTasks, setDailyTasks] = useState<any[]>([]);
   const [leisurePoints, setLeisurePoints] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
+  const navigation = useNavigation();
 
   useEffect(() => {
     loadData();
   }, []);
 
-  useEffect(() => {
-  console.log('Config Status:', getConfigStatus());
-  }, []);
-  
-
-  // Add focus listener to reload data when returning to this screen
-
-useFocusEffect(
-  useCallback(() => {
+useEffect(() => {
+  const unsubscribe = navigation.addListener('focus', () => {
     loadData();
-  }, [])
-);
-
+  });
+  return unsubscribe;
+}, [navigation]);
 
 
   const loadData = async () => {
@@ -76,12 +67,14 @@ useFocusEffect(
     Alert.alert('Generated', `Created ${schedule.length} tasks for today`);
   };
 
-  const handleComplete = async (task: any, proof: string) => {
+const handleComplete = async (task: any, proof: string, attachments: string[]) => {
     try {
-      // Update stored dailyTasks
+      // Update stored dailyTasks with proof and attachments
       const stored = (await storage.get('dailyTasks', [])) || [];
       const updated = stored.map((t: any) =>
-        t.id === task.id ? { ...t, completed: true, proof } : t
+        t.id === task.id 
+          ? { ...t, completed: true, proof, attachments } 
+          : t
       );
       await storage.set('dailyTasks', updated);
       setDailyTasks(updated);
@@ -91,7 +84,7 @@ useFocusEffect(
       setLeisurePoints(newPoints);
       await storage.set('leisurePoints', newPoints);
 
-      // If goal-step, mark goal step completed
+      // If it's a goal-step, mark goal step completed
       if (task.type === 'goal-step' && task.goalId != null) {
         const allGoals = (await storage.get('goals', [])) || [];
         const gIndex = allGoals.findIndex((g: any) => g.id === task.goalId);
@@ -108,12 +101,16 @@ useFocusEffect(
         }
       }
 
-      Alert.alert('Completed', 'Task marked complete! +0.25 points earned');
+      Alert.alert(
+        'Completed! 🎉',
+        `Task marked complete! +0.25 points earned\n${attachments.length > 0 ? `${attachments.length} file(s) attached` : ''}`
+      );
     } catch (error) {
+      console.error('Error completing task:', error);
       Alert.alert('Error', 'Failed to complete task');
     }
   };
-
+  
   const getEventColor = (eventDate: string) => {
     const today = new Date();
     const event = new Date(eventDate);
@@ -121,10 +118,10 @@ useFocusEffect(
       (event.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
     );
 
-    if (daysUntil <= 3) return '#e74c3c'; // red
-    if (daysUntil <= 7) return '#e67e22'; // orange
-    if (daysUntil <= 14) return '#f39c12'; // yellow
-    return '#27ae60'; // green
+    if (daysUntil <= 3) return '#e74c3c';
+    if (daysUntil <= 7) return '#e67e22';
+    if (daysUntil <= 14) return '#f39c12';
+    return '#27ae60';
   };
 
   const sortEventsByPriority = (events: any[]) => {
@@ -145,7 +142,7 @@ useFocusEffect(
       >
         <Text style={styles.title}>To-doer</Text>
 
-        {/* Events Section */}
+        {/* Events Section - Scrollable */}
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <Text style={styles.cardTitle}>📅 Events</Text>
@@ -156,32 +153,38 @@ useFocusEffect(
               <Text style={styles.addButtonText}>+</Text>
             </TouchableOpacity>
           </View>
-          <View style={styles.eventList}>
+          <ScrollView 
+            horizontal 
+            showsHorizontalScrollIndicator={false}
+            style={styles.eventScrollContainer}
+          >
             {sortedEvents.length === 0 ? (
               <Text style={styles.emptyText}>No events yet</Text>
             ) : (
-              sortedEvents.slice(0, 3).map((event: any) => (
-                <TouchableOpacity
-                  key={event.id}
-                  style={[
-                    styles.eventCard,
-                    { backgroundColor: getEventColor(event.date) },
-                  ]}
-                  onPress={() => router.push(`/events/${event.id}`)}
-                >
-                  <View>
-                    <Text style={styles.eventTitle}>{event.title}</Text>
-                    <Text style={styles.eventDate}>
-                      {new Date(event.date).toLocaleDateString()}
-                    </Text>
-                  </View>
-                  <View style={styles.priorityBadge}>
-                    <Text style={styles.priorityText}>P{event.priority}</Text>
-                  </View>
-                </TouchableOpacity>
-              ))
+              <View style={styles.eventRow}>
+                {sortedEvents.map((event: any) => (
+                  <TouchableOpacity
+                    key={event.id}
+                    style={[
+                      styles.eventCard,
+                      { backgroundColor: getEventColor(event.date) },
+                    ]}
+                    onPress={() => router.push(`/events/${event.id}`)}
+                  >
+                    <View>
+                      <Text style={styles.eventTitle}>{event.title}</Text>
+                      <Text style={styles.eventDate}>
+                        {new Date(event.date).toLocaleDateString()}
+                      </Text>
+                    </View>
+                    <View style={styles.priorityBadge}>
+                      <Text style={styles.priorityText}>P{event.priority}</Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </View>
             )}
-          </View>
+          </ScrollView>
           {sortedEvents.length > 3 && (
             <TouchableOpacity
               style={styles.viewAllButton}
@@ -192,15 +195,18 @@ useFocusEffect(
           )}
         </View>
 
-        {/* Today's Tasks Section */}
+        {/* Today's Tasks Section - Scrollable with Black Text */}
         <View style={styles.card}>
           <View style={styles.cardHeader}>
-            <Text style={styles.cardTitle}>🕐 To-day</Text>
+            <Text style={styles.cardTitle}> To-day</Text>
             <TouchableOpacity onPress={generate} style={styles.generateButton}>
               <Text style={styles.generateButtonText}>Generate</Text>
             </TouchableOpacity>
           </View>
-          <View>
+          <ScrollView 
+            style={styles.taskScrollContainer}
+            nestedScrollEnabled={true}
+          >
             {dailyTasks.length === 0 ? (
               <Text style={styles.emptyText}>
                 Click Generate to create today's tasks
@@ -210,7 +216,7 @@ useFocusEffect(
                 <TaskCard key={t.id} task={t} onComplete={handleComplete} />
               ))
             )}
-          </View>
+          </ScrollView>
         </View>
 
         {/* Goals Section */}
@@ -291,6 +297,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#2d3436',
   },
+  cardTitleBlack: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#000000', // Changed to pure black
+  },
   addButton: {
     backgroundColor: '#3498db',
     width: 36,
@@ -304,10 +315,15 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: 'bold',
   },
-  eventList: {
-    maxHeight: 200,
+  eventScrollContainer: {
+    maxHeight: 180,
+  },
+  eventRow: {
+    flexDirection: 'row',
+    gap: 12,
   },
   eventCard: {
+    width: 280,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -346,6 +362,9 @@ const styles = StyleSheet.create({
     color: '#3498db',
     fontSize: 14,
     fontWeight: '600',
+  },
+  taskScrollContainer: {
+    maxHeight: 400,
   },
   generateButton: {
     backgroundColor: '#27ae60',

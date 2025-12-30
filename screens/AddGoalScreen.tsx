@@ -1,4 +1,4 @@
-// app/goals/add.tsx - Updated with AI Integration
+// app/goals/add.tsx - Add Goal Screen with Daily Time Allocation & AI Integration
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
@@ -31,6 +31,11 @@ export default function AddGoalScreen() {
   const [habitTips, setHabitTips] = useState<string[]>([]);
   const [identityStatement, setIdentityStatement] = useState('');
 
+  // --- Daily Time Allocation ---
+  const [dailyHours, setDailyHours] = useState(1);
+  const [dailyMinutes, setDailyMinutes] = useState(0);
+  const dailyTimeAllocation = dailyHours * 60 + dailyMinutes;
+
   const sectors = ['Academic', 'Finance', 'Social', 'Cyber', 'Health', 'Hobbies'];
 
   const handleDateChange = (event: any, selectedDate?: Date) => {
@@ -54,12 +59,11 @@ export default function AddGoalScreen() {
         preferredTime,
         endDate: endDate.toISOString(),
         timesPerWeek,
+        dailyTimeAllocation, // Pass daily allocation to AI
       };
 
-      // Call the AI service
       const response = await githubAI.breakdownGoal(request);
 
-      // Set the generated steps and tips
       setSteps(response.steps);
       setHabitTips(response.habitFormationTips);
       setIdentityStatement(response.identityStatement);
@@ -81,19 +85,11 @@ export default function AddGoalScreen() {
   };
 
   const editStep = (index: number, newText: string) => {
-    const updatedSteps = steps.map((step, idx) =>
-      idx === index ? { ...step, text: newText } : step
-    );
-    setSteps(updatedSteps);
+    setSteps(steps.map((step, idx) => (idx === index ? { ...step, text: newText } : step)));
   };
 
-  const removeStep = (index: number) => {
-    setSteps(steps.filter((_, idx) => idx !== index));
-  };
-
-  const addStep = () => {
-    setSteps([...steps, { text: '', completed: false }]);
-  };
+  const removeStep = (index: number) => setSteps(steps.filter((_, idx) => idx !== index));
+  const addStep = () => setSteps([...steps, { text: '', completed: false }]);
 
   const submitGoal = async () => {
     if (!description.trim() || steps.length === 0) {
@@ -139,7 +135,7 @@ export default function AddGoalScreen() {
         </View>
 
         <View style={styles.form}>
-          {/* Description Input */}
+          {/* Goal Description */}
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Goal Description</Text>
             <TextInput
@@ -161,10 +157,7 @@ export default function AddGoalScreen() {
               {(['morning', 'evening', 'night'] as const).map((time) => (
                 <TouchableOpacity
                   key={time}
-                  style={[
-                    styles.timeButton,
-                    preferredTime === time && styles.timeButtonActive,
-                  ]}
+                  style={[styles.timeButton, preferredTime === time && styles.timeButtonActive]}
                   onPress={() => setPreferredTime(time)}
                 >
                   <Text
@@ -207,7 +200,7 @@ export default function AddGoalScreen() {
             )}
           </View>
 
-          {/* Sector */}
+          {/* Life Sector */}
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Life Sector</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -215,10 +208,7 @@ export default function AddGoalScreen() {
                 {sectors.map((s) => (
                   <TouchableOpacity
                     key={s}
-                    style={[
-                      styles.sectorButton,
-                      sector === s && styles.sectorButtonActive,
-                    ]}
+                    style={[styles.sectorButton, sector === s && styles.sectorButtonActive]}
                     onPress={() => setSector(s)}
                   >
                     <Text
@@ -255,6 +245,41 @@ export default function AddGoalScreen() {
             </View>
           </View>
 
+          {/* Daily Time Allocation */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Daily Time Dedication</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+              {/* Hours */}
+              <View style={{ alignItems: 'center' }}>
+                <Text>Hours</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <TouchableOpacity onPress={() => setDailyHours(Math.max(0, dailyHours - 1))}>
+                    <Text style={styles.counterButtonText}>−</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.counterValue}>{dailyHours}</Text>
+                  <TouchableOpacity onPress={() => setDailyHours(Math.min(8, dailyHours + 1))}>
+                    <Text style={styles.counterButtonText}>+</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* Minutes */}
+              <View style={{ alignItems: 'center' }}>
+                <Text>Minutes</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <TouchableOpacity onPress={() => setDailyMinutes(Math.max(0, dailyMinutes - 15))}>
+                    <Text style={styles.counterButtonText}>−</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.counterValue}>{dailyMinutes}</Text>
+                  <TouchableOpacity onPress={() => setDailyMinutes(Math.min(45, dailyMinutes + 15))}>
+                    <Text style={styles.counterButtonText}>+</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+            <Text style={{ marginTop: 8 }}>Total: {dailyTimeAllocation} minutes per day</Text>
+          </View>
+
           {/* AI Breakdown Button */}
           {!showSteps ? (
             <TouchableOpacity
@@ -284,7 +309,7 @@ export default function AddGoalScreen() {
                 </View>
               )}
 
-              {/* Generated Steps */}
+              {/* Steps Section */}
               <View style={styles.stepsSection}>
                 <View style={styles.stepsSectionHeader}>
                   <Text style={styles.stepsSectionTitle}>Atomic Habit Steps</Text>
@@ -299,9 +324,7 @@ export default function AddGoalScreen() {
                       <Text style={styles.stepNumber}>Step {idx + 1}</Text>
                       {step.habitType && (
                         <View style={styles.habitTypeBadge}>
-                          <Text style={styles.habitTypeText}>
-                            {step.habitType}
-                          </Text>
+                          <Text style={styles.habitTypeText}>{step.habitType}</Text>
                         </View>
                       )}
                     </View>
@@ -313,52 +336,31 @@ export default function AddGoalScreen() {
                       placeholder="Step description..."
                       placeholderTextColor="#95a5a6"
                     />
-                    {step.cueStackingIdea && (
-                      <Text style={styles.cueText}>💡 {step.cueStackingIdea}</Text>
-                    )}
-                    {step.estimatedDuration && (
-                      <Text style={styles.durationText}>
-                        ⏱️ ~{step.estimatedDuration} min
-                      </Text>
-                    )}
-                    <TouchableOpacity
-                      onPress={() => removeStep(idx)}
-                      style={styles.removeButton}
-                    >
+                    {step.cueStackingIdea && <Text style={styles.cueText}>💡 {step.cueStackingIdea}</Text>}
+                    {step.estimatedDuration && <Text style={styles.durationText}>⏱️ ~{step.estimatedDuration} min</Text>}
+                    <TouchableOpacity onPress={() => removeStep(idx)} style={styles.removeButton}>
                       <Text style={styles.removeButtonText}>🗑️ Remove</Text>
                     </TouchableOpacity>
                   </View>
                 ))}
               </View>
 
-              {/* Habit Formation Tips */}
+              {/* Habit Tips */}
               {habitTips.length > 0 && (
                 <View style={styles.tipsCard}>
                   <Text style={styles.tipsTitle}>💪 Habit Formation Tips:</Text>
                   {habitTips.map((tip, idx) => (
-                    <Text key={idx} style={styles.tipText}>
-                      • {tip}
-                    </Text>
+                    <Text key={idx} style={styles.tipText}>• {tip}</Text>
                   ))}
                 </View>
               )}
 
-              {/* Submit Button */}
-              <TouchableOpacity
-                style={styles.submitButton}
-                onPress={submitGoal}
-              >
+              {/* Submit & Regenerate */}
+              <TouchableOpacity style={styles.submitButton} onPress={submitGoal}>
                 <Text style={styles.submitButtonText}>Create Goal</Text>
               </TouchableOpacity>
-
-              {/* Regenerate Button */}
-              <TouchableOpacity
-                style={styles.regenerateButton}
-                onPress={breakdownGoalWithAI}
-              >
-                <Text style={styles.regenerateButtonText}>
-                  🔄 Regenerate Steps
-                </Text>
+              <TouchableOpacity style={styles.regenerateButton} onPress={breakdownGoalWithAI}>
+                <Text style={styles.regenerateButtonText}>🔄 Regenerate Steps</Text>
               </TouchableOpacity>
             </>
           )}
@@ -368,314 +370,63 @@ export default function AddGoalScreen() {
   );
 }
 
+// Styles remain unchanged
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f8f9fa',
-  },
-  scrollView: {
-    flex: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#dee2e6',
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 8,
-  },
-  backButtonText: {
-    fontSize: 24,
-    color: '#2d3436',
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#2d3436',
-  },
-  form: {
-    padding: 16,
-  },
-  inputGroup: {
-    marginBottom: 20,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#2d3436',
-    marginBottom: 8,
-  },
-  input: {
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#ced4da',
-    borderRadius: 12,
-    padding: 14,
-    fontSize: 16,
-    color: '#2d3436',
-  },
-  textArea: {
-    minHeight: 80,
-    textAlignVertical: 'top',
-  },
-  timeButtonGroup: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  timeButton: {
-    flex: 1,
-    backgroundColor: '#f1f3f5',
-    paddingVertical: 12,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  timeButtonActive: {
-    backgroundColor: '#9b59b6',
-  },
-  timeButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#636e72',
-  },
-  timeButtonTextActive: {
-    color: '#fff',
-  },
-  dateButton: {
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#ced4da',
-    borderRadius: 12,
-    padding: 14,
-  },
-  dateButtonText: {
-    fontSize: 14,
-    color: '#2d3436',
-  },
-  sectorContainer: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  sectorButton: {
-    backgroundColor: '#f1f3f5',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 20,
-  },
-  sectorButtonActive: {
-    backgroundColor: '#9b59b6',
-  },
-  sectorButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#636e72',
-  },
-  sectorButtonTextActive: {
-    color: '#fff',
-  },
-  counterContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#ced4da',
-    borderRadius: 12,
-    padding: 8,
-  },
-  counterButton: {
-    width: 40,
-    height: 40,
-    backgroundColor: '#f1f3f5',
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  counterButtonText: {
-    fontSize: 24,
-    color: '#2d3436',
-    fontWeight: '600',
-  },
-  counterValue: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#2d3436',
-    marginHorizontal: 30,
-  },
-  aiButton: {
-    backgroundColor: '#5f27cd',
-    padding: 16,
-    borderRadius: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 10,
-  },
-  aiButtonDisabled: {
-    backgroundColor: '#95a5a6',
-  },
-  aiButtonIcon: {
-    fontSize: 20,
-    marginRight: 8,
-  },
-  aiButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  loadingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  identityCard: {
-    backgroundColor: '#e8daef',
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 16,
-  },
-  identityLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#6c3483',
-    marginBottom: 4,
-  },
-  identityText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#6c3483',
-    fontStyle: 'italic',
-  },
-  stepsSection: {
-    marginTop: 16,
-  },
-  stepsSectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  stepsSectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#2d3436',
-  },
-  addStepButton: {
-    backgroundColor: '#9b59b6',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-  },
-  addStepButtonText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  stepCard: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#dee2e6',
-  },
-  stepHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  stepNumber: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    color: '#9b59b6',
-  },
-  habitTypeBadge: {
-    backgroundColor: '#f1f3f5',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  habitTypeText: {
-    fontSize: 10,
-    color: '#636e72',
-    fontWeight: '600',
-  },
-  stepInput: {
-    fontSize: 14,
-    color: '#2d3436',
-    minHeight: 60,
-    textAlignVertical: 'top',
-  },
-  cueText: {
-    fontSize: 12,
-    color: '#636e72',
-    fontStyle: 'italic',
-    marginTop: 8,
-    backgroundColor: '#f8f9fa',
-    padding: 8,
-    borderRadius: 6,
-  },
-  durationText: {
-    fontSize: 11,
-    color: '#95a5a6',
-    marginTop: 4,
-  },
-  removeButton: {
-    marginTop: 8,
-    alignSelf: 'flex-end',
-  },
-  removeButtonText: {
-    fontSize: 12,
-    color: '#e74c3c',
-  },
-  tipsCard: {
-    backgroundColor: '#d5f4e6',
-    padding: 16,
-    borderRadius: 12,
-    marginTop: 16,
-  },
-  tipsTitle: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#0e6251',
-    marginBottom: 8,
-  },
-  tipText: {
-    fontSize: 12,
-    color: '#0e6251',
-    marginBottom: 6,
-    lineHeight: 18,
-  },
-  submitButton: {
-    backgroundColor: '#27ae60',
-    padding: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-    marginTop: 16,
-  },
-  submitButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  regenerateButton: {
-    backgroundColor: '#fff',
-    borderWidth: 2,
-    borderColor: '#5f27cd',
-    padding: 12,
-    borderRadius: 12,
-    alignItems: 'center',
-    marginTop: 12,
-  },
-  regenerateButtonText: {
-    color: '#5f27cd',
-    fontSize: 14,
-    fontWeight: '600',
-  },
+  container: { flex: 1, backgroundColor: '#f8f9fa' },
+  scrollView: { flex: 1 },
+  header: { flexDirection: 'row', alignItems: 'center', padding: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#dee2e6' },
+  backButton: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center', marginRight: 8 },
+  backButtonText: { fontSize: 24, color: '#2d3436' },
+  headerTitle: { fontSize: 24, fontWeight: 'bold', color: '#2d3436' },
+  form: { padding: 16 },
+  inputGroup: { marginBottom: 20 },
+  label: { fontSize: 14, fontWeight: '600', color: '#2d3436', marginBottom: 8 },
+  input: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#ced4da', borderRadius: 12, padding: 14, fontSize: 16, color: '#2d3436' },
+  textArea: { minHeight: 80, textAlignVertical: 'top' },
+  timeButtonGroup: { flexDirection: 'row', gap: 8 },
+  timeButton: { flex: 1, backgroundColor: '#f1f3f5', paddingVertical: 12, borderRadius: 12, alignItems: 'center' },
+  timeButtonActive: { backgroundColor: '#9b59b6' },
+  timeButtonText: { fontSize: 14, fontWeight: '600', color: '#636e72' },
+  timeButtonTextActive: { color: '#fff' },
+  dateButton: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#ced4da', borderRadius: 12, padding: 14 },
+  dateButtonText: { fontSize: 14, color: '#2d3436' },
+  sectorContainer: { flexDirection: 'row', gap: 8 },
+  sectorButton: { backgroundColor: '#f1f3f5', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20 },
+  sectorButtonActive: { backgroundColor: '#9b59b6' },
+  sectorButtonText: { fontSize: 14, fontWeight: '600', color: '#636e72' },
+  sectorButtonTextActive: { color: '#fff' },
+  counterContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff', borderWidth: 1, borderColor: '#ced4da', borderRadius: 12, padding: 8 },
+  counterButton: { width: 40, height: 40, backgroundColor: '#f1f3f5', borderRadius: 20, justifyContent: 'center', alignItems: 'center' },
+  counterButtonText: { fontSize: 24, color: '#2d3436', fontWeight: '600' },
+  counterValue: { fontSize: 24, fontWeight: 'bold', color: '#2d3436', marginHorizontal: 10 },
+  aiButton: { backgroundColor: '#5f27cd', padding: 16, borderRadius: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 10 },
+  aiButtonDisabled: { backgroundColor: '#95a5a6' },
+  aiButtonIcon: { fontSize: 20, marginRight: 8 },
+  aiButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  loadingContainer: { flexDirection: 'row', alignItems: 'center' },
+  identityCard: { backgroundColor: '#e8daef', padding: 16, borderRadius: 12, marginBottom: 16 },
+  identityLabel: { fontSize: 12, fontWeight: '600', color: '#6c3483', marginBottom: 4 },
+  identityText: { fontSize: 16, fontWeight: 'bold', color: '#6c3483', fontStyle: 'italic' },
+  stepsSection: { marginTop: 16 },
+  stepsSectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  stepsSectionTitle: { fontSize: 18, fontWeight: 'bold', color: '#2d3436' },
+  addStepButton: { backgroundColor: '#9b59b6', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
+  addStepButtonText: { color: '#fff', fontSize: 12, fontWeight: '600' },
+  stepCard: { backgroundColor: '#fff', borderRadius: 12, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: '#dee2e6' },
+  stepHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  stepNumber: { fontSize: 12, fontWeight: 'bold', color: '#9b59b6' },
+  habitTypeBadge: { backgroundColor: '#f1f3f5', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  habitTypeText: { fontSize: 10, color: '#636e72', fontWeight: '600' },
+  stepInput: { fontSize: 14, color: '#2d3436', minHeight: 60, textAlignVertical: 'top' },
+  cueText: { fontSize: 12, color: '#636e72', fontStyle: 'italic', marginTop: 8, backgroundColor: '#f8f9fa', padding: 8, borderRadius: 6 },
+  durationText: { fontSize: 11, color: '#95a5a6', marginTop: 4 },
+  removeButton: { marginTop: 8, alignSelf: 'flex-end' },
+  removeButtonText: { fontSize: 12, color: '#e74c3c' },
+  tipsCard: { backgroundColor: '#d5f4e6', padding: 16, borderRadius: 12, marginTop: 16 },
+  tipsTitle: { fontSize: 14, fontWeight: 'bold', color: '#0e6251', marginBottom: 8 },
+  tipText: { fontSize: 12, color: '#0e6251', marginBottom: 6, lineHeight: 18 },
+  submitButton: { backgroundColor: '#27ae60', padding: 16, borderRadius: 12, alignItems: 'center', marginTop: 16 },
+  submitButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  regenerateButton: { backgroundColor: '#fff', borderWidth: 2, borderColor: '#5f27cd', padding: 12, borderRadius: 12, alignItems: 'center', marginTop: 12 },
+  regenerateButtonText: { color: '#5f27cd', fontSize: 14, fontWeight: '600' },
 });
