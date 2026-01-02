@@ -3,43 +3,53 @@ import { ConfigContext, ExpoConfig } from 'expo/config';
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
+
+  /** App Identity */
   name: "TodoerApp",
-  slug: "todoer-app",
+  slug: "todoerapp",
   version: "1.0.0",
   orientation: "portrait",
-  // Updated Icon Path
-  icon: "./assets/images/Gemini_Generated_Image_xv7e0rxv7e0rxv7e.png",
   scheme: "todoerapp",
   userInterfaceStyle: "automatic",
   newArchEnabled: true,
 
+  /** App Icons */
+  icon: "./assets/images/Gemini_Generated_Image_xv7e0rxv7e0rxv7e.png",
+
+  /** iOS */
   ios: {
     supportsTablet: true,
   },
 
+  /** Android */
   android: {
+    package: "com.yourcompany.todoerapp", // ✅ keep your final package name
+    versionCode: 1,
+    edgeToEdgeEnabled: true,
+    predictiveBackGestureEnabled: false,
+    permissions: [
+      // add permissions if needed
+    ],
     adaptiveIcon: {
-      backgroundColor: "#E6F4FE",
-      // Set as foreground for Android adaptive icons
       foregroundImage: "./assets/images/Gemini_Generated_Image_xv7e0rxv7e0rxv7e.png",
+      backgroundColor: "#E6F4FE",
       backgroundImage: "./assets/images/android-icon-background.png",
       monochromeImage: "./assets/images/android-icon-monochrome.png",
     },
-    edgeToEdgeEnabled: true,
-    predictiveBackGestureEnabled: false,
   },
 
+  /** Web */
   web: {
     output: "static",
     favicon: "./assets/images/favicon.png",
   },
 
+  /** Plugins */
   plugins: [
     "expo-router",
     [
       "expo-splash-screen",
       {
-        // Updated Splash Screen Path
         image: "./assets/images/Gemini_Generated_Image_xv7e0rxv7e0rxv7e.png",
         imageWidth: 200,
         resizeMode: "contain",
@@ -51,11 +61,13 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     ],
   ],
 
+  /** Experiments */
   experiments: {
     typedRoutes: true,
     reactCompiler: true,
   },
 
+  /** Extra / Env */
   extra: {
     githubToken: process.env.GITHUB_TOKEN || "",
     githubEndpoint:
@@ -64,9 +76,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     githubModel:
       process.env.GITHUB_MODEL || "openai/gpt-4o-mini",
 
-      eas: {
-        "projectId": "afc2c2f0-b8c1-4fc1-bf1b-6d2a539a3250"
-      },
+    eas: {
+      projectId: "todoer-app",
+    },
   },
-
 });

@@ -3,16 +3,16 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    Platform,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Platform,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { githubAI } from '../../../services/githubAi';
 import { storage } from '../../../services/storage';
@@ -37,7 +37,7 @@ export default function EditGoalScreen() {
   const [identityStatement, setIdentityStatement] = useState('');
   const [habitTips, setHabitTips] = useState<string[]>([]);
 
-  const sectors = ['Academic', 'Finance', 'Social', 'Cyber', 'Health', 'Hobbies'];
+  const sectors = ['Academic', 'Finance', 'Social', 'Career', 'Health', 'Hobbies'];
 
   useEffect(() => {
     loadGoal();
