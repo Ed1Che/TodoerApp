@@ -6,7 +6,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
 
   /** App Identity */
   name: "TodoerApp",
-  slug: "todoerapp",
+  slug: "todoer-app",
   version: "1.0.0",
   orientation: "portrait",
   scheme: "todoerapp",
@@ -19,6 +19,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   /** iOS */
   ios: {
     supportsTablet: true,
+    bundleIdentifier: "com.yourcompany.todoerapp", // ✅ keep your final bundle identifier
   },
 
   /** Android */
@@ -28,7 +29,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     edgeToEdgeEnabled: true,
     predictiveBackGestureEnabled: false,
     permissions: [
-      // add permissions if needed
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.VIBRATE"
     ],
     adaptiveIcon: {
       foregroundImage: "./assets/images/Gemini_Generated_Image_xv7e0rxv7e0rxv7e.png",
@@ -77,7 +79,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       process.env.GITHUB_MODEL || "openai/gpt-4o-mini",
 
     eas: {
-      projectId: "todoer-app",
-    },
+        projectId: "afc2c2f0-b8c1-4fc1-bf1b-6d2a539a3250"
+      }
   },
 });
