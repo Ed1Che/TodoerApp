@@ -1,12 +1,12 @@
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
-    Alert,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Alert,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { storage } from '../../services/storage';
 
@@ -16,6 +16,7 @@ export default function AddLeisureScreen() {
   const [name, setName] = useState('');
   const [cost, setCost] = useState('');
   const [icon, setIcon] = useState('🎮');
+  const [durationInput, setDurationInput] = useState('');
 
   const saveLeisure = async () => {
     if (!name.trim() || !cost.trim()) {
@@ -38,6 +39,7 @@ export default function AddLeisureScreen() {
         cost: parsedCost,
         icon,
         custom: true,
+        duration: durationInput ? Number(durationInput) : undefined,
       };
 
       await storage.set('leisureItems', [...leisureItems, newItem]);
@@ -74,6 +76,22 @@ export default function AddLeisureScreen() {
         placeholder="Icon (emoji)"
         value={icon}
         onChangeText={setIcon}
+      />
+
+      <TextInput
+        style={styles.input}
+        placeholder="Cost (points)"
+        keyboardType="numeric"
+        value={cost}
+        onChangeText={setCost}
+      />
+
+      <TextInput
+        style={styles.input}
+        placeholder="Duration (minutes)"
+        keyboardType="numeric"
+        value={durationInput}
+        onChangeText={setDurationInput}
       />
 
       <TouchableOpacity style={styles.saveButton} onPress={saveLeisure}>

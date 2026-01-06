@@ -1,12 +1,19 @@
 // services/notificationService.ts
+import * as BackgroundFetch from 'expo-background-fetch';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
+import * as TaskManager from 'expo-task-manager';
 import { Platform } from 'react-native';
 import { storage } from './storage';
 
-// Configure notification behavior
+const BACKGROUND_NOTIFICATION_TASK = 'BACKGROUND_NOTIFICATION_TASK';
+const NOTIFICATION_CHECK_INTERVAL = 15 * 60; // 15 minutes
+
+/* ============================
+   Notification UI Behavior
+   ============================ */
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
+  handleNotification: async (): Promise<Notifications.NotificationBehavior> => ({
     shouldShowAlert: true,
     shouldPlaySound: true,
     shouldSetBadge: true,
@@ -16,6 +23,9 @@ Notifications.setNotificationHandler({
   }),
 });
 
+/* ============================
+   Types
+   ============================ */
 interface TaskReminder {
   id: string;
   taskName: string;
@@ -23,44 +33,66 @@ interface TaskReminder {
   scheduledTime: Date;
   notificationId?: string;
   source?: 'to-day' | 'manual' | 'goal' | 'event';
+  reminderMinutesBefore?: number;
 }
 
 interface ToDayTask {
   id: string;
   name: string;
   duration: number;
-  startTime?: string; // Format: "HH:mm" or ISO string
-  endTime?: string;
-  scheduledDate?: string; // ISO date string
+  startTime?: string;
+  scheduledDate?: string;
+  completed?: boolean;
 }
 
+/* ============================
+   Service
+   ============================ */
 class NotificationService {
-  private notificationListener: any;
-  private responseListener: any;
+  private notificationListener?: Notifications.Subscription;
+  private responseListener?: Notifications.Subscription;
+  private initialized = false;
 
   constructor() {
     this.initialize();
   }
 
   private async initialize() {
-    if (Platform.OS === 'android') {
-      await Notifications.setNotificationChannelAsync('task-reminders', {
-        name: 'Task Reminders',
-        importance: Notifications.AndroidImportance.MAX,
-        vibrationPattern: [0, 250, 250, 250],
-        lightColor: '#FF231F7C',
-        sound: 'default',
-        enableVibrate: true,
-        showBadge: true,
-      });
+    if (this.initialized) return;
+
+    try {
+      if (Platform.OS === 'android') {
+        await Notifications.setNotificationChannelAsync('task-reminders', {
+          name: 'Task Reminders',
+          importance: Notifications.AndroidImportance.MAX,
+          vibrationPattern: [0, 250, 250, 250],
+          sound: 'default',
+          enableVibrate: true,
+          showBadge: true,
+          lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+        });
+
+        // Create separate channel for high-priority reminders
+        await Notifications.setNotificationChannelAsync('urgent-reminders', {
+          name: 'Urgent Task Reminders',
+          importance: Notifications.AndroidImportance.MAX,
+          vibrationPattern: [0, 500, 250, 500],
+          sound: 'default',
+          enableVibrate: true,
+          showBadge: true,
+          lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+        });
+      }
+
+      await this.registerBackgroundTask();
+      this.initialized = true;
+    } catch (error) {
+      console.error('Failed to initialize notification service:', error);
     }
   }
 
   async requestPermissions(): Promise<boolean> {
-    if (!Device.isDevice) {
-      console.log('Must use physical device for Push Notifications');
-      return false;
-    }
+    if (!Device.isDevice) return false;
 
     const { status: existingStatus } = await Notifications.getPermissionsAsync();
     let finalStatus = existingStatus;
@@ -70,360 +102,280 @@ class NotificationService {
       finalStatus = status;
     }
 
-    if (finalStatus !== 'granted') {
-      console.log('Failed to get push token for push notification!');
-      return false;
-    }
-
-    return true;
+    return finalStatus === 'granted';
   }
 
-  /**
-   * Parse time string to Date object
-   * Accepts formats: "HH:mm", "HH:mm:ss", or ISO string
-   */
-  private parseTimeToDate(timeString: string, baseDate?: Date): Date {
-    const base = baseDate || new Date();
-    
-    // If it's an ISO string, parse directly
-    if (timeString.includes('T') || timeString.includes('Z')) {
-      return new Date(timeString);
-    }
-
-    // Parse HH:mm or HH:mm:ss format
-    const timeParts = timeString.split(':');
-    const hours = parseInt(timeParts[0], 10);
-    const minutes = parseInt(timeParts[1], 10);
-    const seconds = timeParts[2] ? parseInt(timeParts[2], 10) : 0;
-
-    const scheduledDate = new Date(base);
-    scheduledDate.setHours(hours, minutes, seconds, 0);
-
-    // If the time has already passed today, schedule for tomorrow
-    if (scheduledDate < new Date()) {
-      scheduledDate.setDate(scheduledDate.getDate() + 1);
-    }
-
-    return scheduledDate;
-  }
-
-  /**
-   * Schedule reminders for To-Day section tasks
-   * Reads tasks from storage and schedules notifications based on their times
-   */
-  async scheduleFromToDaySection(): Promise<void> {
+  /* ============================
+     Background Task Management
+     ============================ */
+  private async registerBackgroundTask() {
     try {
-      const hasPermission = await this.requestPermissions();
-      if (!hasPermission) {
-        console.log('Notification permissions not granted');
-        return;
-      }
-
-      // Get to-day tasks from storage (adjust key based on your storage structure)
-      const toDayTasks: ToDayTask[] = await storage.get('dailyTasks', []);
+      const isTaskDefined = await TaskManager.isTaskDefined(BACKGROUND_NOTIFICATION_TASK);
       
-      if (!toDayTasks || toDayTasks.length === 0) {
-        console.log('No to-day tasks found');
-        return;
+      if (!isTaskDefined) {
+        TaskManager.defineTask(BACKGROUND_NOTIFICATION_TASK, async () => {
+          try {
+            await this.checkAndSendUpcomingReminders();
+            return BackgroundFetch.BackgroundFetchResult.NewData;
+          } catch (error) {
+            console.error('Background task error:', error);
+            return BackgroundFetch.BackgroundFetchResult.Failed;
+          }
+        });
       }
 
-      // Cancel existing to-day reminders before scheduling new ones
-      await this.cancelRemindersBySource('to-day');
+      const isRegistered = await TaskManager.isTaskRegisteredAsync(
+        BACKGROUND_NOTIFICATION_TASK
+      );
 
-      let scheduledCount = 0;
+      if (!isRegistered) {
+        await BackgroundFetch.registerTaskAsync(BACKGROUND_NOTIFICATION_TASK, {
+          minimumInterval: NOTIFICATION_CHECK_INTERVAL,
+          stopOnTerminate: false,
+          startOnBoot: true,
+        });
+      }
+    } catch (error) {
+      console.error('Failed to register background task:', error);
+    }
+  }
 
-      for (const task of toDayTasks) {
-        // Only schedule if task has a start time
-        if (task.startTime) {
-          const scheduledTime = this.parseTimeToDate(
-            task.startTime,
-            task.scheduledDate ? new Date(task.scheduledDate) : undefined
-          );
+  private async checkAndSendUpcomingReminders() {
+    const tasks: ToDayTask[] = await storage.get('dailyTasks', []);
+    const now = new Date();
 
-          // Only schedule future notifications
-          if (scheduledTime > new Date()) {
-            const notificationId = await this.scheduleTaskReminder(
-              task.name,
-              task.duration,
-              scheduledTime,
-              'to-day'
-            );
+    for (const task of tasks) {
+      if (task.completed || !task.startTime) continue;
 
-            if (notificationId) {
-              scheduledCount++;
-              console.log(`Scheduled reminder for "${task.name}" at ${scheduledTime.toLocaleString()}`);
-            }
-          }
+      const taskTime = this.parseTimeToDate(task.startTime);
+      const minutesUntil = Math.floor((taskTime.getTime() - now.getTime()) / (1000 * 60));
+
+      // Send reminder if task is 5-15 minutes away and hasn't been reminded yet
+      if (minutesUntil > 0 && minutesUntil <= 15) {
+        const remindedKey = `reminded_${task.id}_${task.startTime}`;
+        const hasReminded = await storage.get(remindedKey, false);
+
+        if (!hasReminded) {
+          await this.sendImmediateReminder(task.name, task.duration, minutesUntil);
+          await storage.set(remindedKey, true);
         }
       }
-
-      console.log(`Successfully scheduled ${scheduledCount} to-day reminders`);
-    } catch (error) {
-      console.error('Error scheduling to-day reminders:', error);
     }
   }
 
-  /**
-   * Schedule a task reminder with source tracking
-   */
+  private async sendImmediateReminder(taskName: string, duration: number, minutesUntil: number) {
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: '🔔 Upcoming Task',
+        body: `"${taskName}" starts in ${minutesUntil} minutes${duration ? ` (${duration}m duration)` : ''}`,
+        data: { taskName, type: 'reminder' },
+        sound: 'default',
+        priority: Notifications.AndroidNotificationPriority.MAX,
+        sticky: true,
+      },
+      trigger: null, // Send immediately
+    });
+  }
+
+  /* ============================
+     Utilities
+     ============================ */
+  private parseTimeToDate(time: string, baseDate?: Date): Date {
+    if (time.includes('T')) return new Date(time);
+
+    const [h, m, s = '0'] = time.split(':');
+    const date = new Date(baseDate ?? new Date());
+    date.setHours(+h, +m, +s, 0);
+
+    if (date < new Date()) date.setDate(date.getDate() + 1);
+    return date;
+  }
+
+  /* ============================
+     Main Scheduling Logic
+     ============================ */
   async scheduleTaskReminder(
     taskName: string,
     taskDuration: number,
     scheduledTime: Date,
-    source: 'to-day' | 'manual' | 'goal' | 'event' = 'manual'
+    source: TaskReminder['source'] = 'manual',
+    reminderMinutesBefore?: number
   ): Promise<string | null> {
-    try {
-      const hasPermission = await this.requestPermissions();
-      if (!hasPermission) {
-        return null;
-      }
+    if (!(await this.requestPermissions())) return null;
+    if (scheduledTime <= new Date()) return null;
 
-      // Don't schedule past notifications
-      if (scheduledTime <= new Date()) {
-        console.log(`Skipping past notification for ${taskName}`);
-        return null;
+    // Schedule reminder notification if specified
+    if (reminderMinutesBefore && reminderMinutesBefore > 0) {
+      const reminderTime = new Date(scheduledTime.getTime() - reminderMinutesBefore * 60000);
+      
+      if (reminderTime > new Date()) {
+        await Notifications.scheduleNotificationAsync({
+          content: {
+            title: '🔔 Upcoming Task',
+            body: `"${taskName}" in ${reminderMinutesBefore} minutes${taskDuration ? ` (${taskDuration}m duration)` : ''}`,
+            data: { taskName, taskDuration, source, type: 'reminder' },
+            sound: 'default',
+            priority: Notifications.AndroidNotificationPriority.MAX,
+          },
+          trigger: {
+            type: Notifications.SchedulableTriggerInputTypes.DATE,
+            date: reminderTime,
+            channelId: 'urgent-reminders',
+          },
+        });
       }
+    }
 
-      const trigger: Notifications.NotificationTriggerInput = {
+    // Schedule main task notification
+    const notificationId = await Notifications.scheduleNotificationAsync({
+      content: {
+        title: '⏰ Task Time',
+        body: `${taskName}${taskDuration ? ` (${taskDuration} min)` : ''}`,
+        data: { taskName, taskDuration, source, type: 'task' },
+        sound: 'default',
+        priority: Notifications.AndroidNotificationPriority.MAX,
+        sticky: true,
+      },
+      trigger: {
         type: Notifications.SchedulableTriggerInputTypes.DATE,
         date: scheduledTime,
-      };
+        channelId: 'task-reminders',
+      },
+    });
 
-      const notificationId = await Notifications.scheduleNotificationAsync({
-        content: {
-          title: source === 'to-day' ? '📅 To-Day Task Reminder' : '⏰ Task Reminder',
-          body: `Time to: ${taskName}${taskDuration > 0 ? ` (${taskDuration} min)` : ''}`,
-          data: { 
-            taskName, 
-            taskDuration,
-            type: 'task-reminder',
-            action: 'start-task',
-            source
-          },
-          sound: 'default',
-          priority: Notifications.AndroidNotificationPriority.MAX,
-          sticky: true,
-        },
-        trigger,
-      });
+    const reminders = await storage.get('taskReminders', []);
+    reminders.push({
+      id: Date.now().toString(),
+      taskName,
+      taskDuration,
+      scheduledTime,
+      notificationId,
+      source,
+      reminderMinutesBefore,
+    });
 
-      // Save reminder to storage
-      const reminders = await storage.get('taskReminders', []);
-      const newReminder: TaskReminder = {
-        id: Date.now().toString(),
-        taskName,
-        taskDuration,
-        scheduledTime,
-        notificationId,
-        source,
-      };
-      reminders.push(newReminder);
-      await storage.set('taskReminders', reminders);
-
-      return notificationId;
-    } catch (error) {
-      console.error('Error scheduling notification:', error);
-      return null;
-    }
+    await storage.set('taskReminders', reminders);
+    return notificationId;
   }
 
-  /**
-   * Cancel reminders by source type
-   */
-  async cancelRemindersBySource(source: string): Promise<void> {
+  /* ============================
+     To-Day Section Integration
+     ============================ */
+  async refreshToDayReminders(): Promise<void> {
+    if (!(await this.requestPermissions())) return;
+
     try {
-      const reminders = await storage.get('taskReminders', []);
-      const remindersToCancel = reminders.filter((r: TaskReminder) => r.source === source);
-      
-      for (const reminder of remindersToCancel) {
-        if (reminder.notificationId) {
-          await Notifications.cancelScheduledNotificationAsync(reminder.notificationId);
+      const tasks: ToDayTask[] = await storage.get('dailyTasks', []);
+      await this.cancelRemindersBySource('to-day');
+
+      let scheduledCount = 0;
+
+      for (const task of tasks) {
+        if (task.completed || !task.startTime) continue;
+
+        const date = this.parseTimeToDate(
+          task.startTime,
+          task.scheduledDate ? new Date(task.scheduledDate) : undefined
+        );
+
+        // Only schedule if in the future
+        if (date > new Date()) {
+          await this.scheduleTaskReminder(
+            task.name, 
+            task.duration, 
+            date, 
+            'to-day',
+            5 // 5-minute reminder by default
+          );
+          scheduledCount++;
         }
       }
 
-      // Keep only reminders from other sources
-      const remainingReminders = reminders.filter((r: TaskReminder) => r.source !== source);
-      await storage.set('taskReminders', remainingReminders);
-      
-      console.log(`Canceled ${remindersToCancel.length} reminders from source: ${source}`);
+      console.log(`Scheduled ${scheduledCount} reminders for To-day tasks`);
     } catch (error) {
-      console.error('Error canceling reminders by source:', error);
+      console.error('Error refreshing To-day reminders:', error);
     }
   }
 
-  /**
-   * Schedule multiple reminders for a task
-   */
-  async scheduleRepeatingReminders(
-    taskName: string,
-    taskDuration: number,
-    times: Date[],
-    source: 'to-day' | 'manual' | 'goal' | 'event' = 'manual'
-  ): Promise<string[]> {
-    const ids: string[] = [];
-    
-    for (const time of times) {
-      const id = await this.scheduleTaskReminder(taskName, taskDuration, time, source);
-      if (id) ids.push(id);
-    }
-
-    return ids;
+  async scheduleFromToDaySection(): Promise<void> {
+    await this.refreshToDayReminders();
   }
 
-  /**
-   * Cancel a specific reminder
-   */
-  async cancelReminder(notificationId: string): Promise<void> {
-    try {
-      await Notifications.cancelScheduledNotificationAsync(notificationId);
-      
-      const reminders = await storage.get('taskReminders', []);
-      const updated = reminders.filter((r: TaskReminder) => r.notificationId !== notificationId);
-      await storage.set('taskReminders', updated);
-    } catch (error) {
-      console.error('Error canceling notification:', error);
-    }
-  }
+  /* ============================
+     Cancel / Query Operations
+     ============================ */
+  async cancelRemindersBySource(source: string) {
+    const reminders = await storage.get('taskReminders', []);
+    const remaining = [];
 
-  /**
-   * Cancel all reminders
-   */
-  async cancelAllReminders(): Promise<void> {
-    try {
-      await Notifications.cancelAllScheduledNotificationsAsync();
-      await storage.set('taskReminders', []);
-    } catch (error) {
-      console.error('Error canceling all notifications:', error);
-    }
-  }
-
-  /**
-   * Get all scheduled reminders
-   */
-  async getAllScheduledReminders(): Promise<TaskReminder[]> {
-    try {
-      return await storage.get('taskReminders', []);
-    } catch (error) {
-      console.error('Error getting reminders:', error);
-      return [];
-    }
-  }
-
-  /**
-   * Get reminders by source
-   */
-  async getRemindersBySource(source: string): Promise<TaskReminder[]> {
-    try {
-      const allReminders = await storage.get('taskReminders', []);
-      return allReminders.filter((r: TaskReminder) => r.source === source);
-    } catch (error) {
-      console.error('Error getting reminders by source:', error);
-      return [];
-    }
-  }
-
-  /**
-   * Schedule daily goal reminders based on preferred time
-   */
-  async scheduleDailyGoalReminders(
-    goalName: string,
-    preferredTime: 'morning' | 'evening' | 'night',
-    duration: number
-  ): Promise<void> {
-    const times: Date[] = [];
-    const now = new Date();
-
-    for (let i = 1; i <= 7; i++) {
-      const reminderDate = new Date(now);
-      reminderDate.setDate(now.getDate() + i);
-
-      if (preferredTime === 'morning') {
-        reminderDate.setHours(7, 0, 0, 0);
-      } else if (preferredTime === 'evening') {
-        reminderDate.setHours(18, 0, 0, 0);
+    for (const r of reminders) {
+      if (r.source === source && r.notificationId) {
+        try {
+          await Notifications.cancelScheduledNotificationAsync(r.notificationId);
+        } catch (error) {
+          console.error('Error canceling notification:', error);
+        }
       } else {
-        reminderDate.setHours(20, 0, 0, 0);
+        remaining.push(r);
       }
-
-      times.push(reminderDate);
     }
 
-    await this.scheduleRepeatingReminders(goalName, duration, times, 'goal');
+    await storage.set('taskReminders', remaining);
   }
 
-  /**
-   * Schedule event reminder
-   */
-  async scheduleEventReminder(
-    eventTitle: string,
-    eventDate: Date,
-    repetitionCount: number
-  ): Promise<void> {
-    const times: Date[] = [];
-
-    for (let i = repetitionCount; i > 0; i--) {
-      const reminderDate = new Date(eventDate);
-      reminderDate.setDate(eventDate.getDate() - i);
-      reminderDate.setHours(9, 0, 0, 0);
-      times.push(reminderDate);
-    }
-
-    const dayOfReminder = new Date(eventDate);
-    dayOfReminder.setHours(8, 0, 0, 0);
-    times.push(dayOfReminder);
-
-    await this.scheduleRepeatingReminders(eventTitle, 0, times, 'event');
+  async cancelAllReminders() {
+    await Notifications.cancelAllScheduledNotificationsAsync();
+    await storage.set('taskReminders', []);
   }
 
-  /**
-   * Setup notification listeners
-   */
+  async getPendingNotifications() {
+    return Notifications.getAllScheduledNotificationsAsync();
+  }
+
+
+
+  /* ============================
+     Test Notification
+     ============================ */
+  async sendTestNotification() {
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: '✅ Notifications Working',
+        body: 'Your task reminders are set up correctly!',
+        sound: 'default',
+        priority: Notifications.AndroidNotificationPriority.MAX,
+      },
+      trigger: {
+        seconds: 2,
+        channelId: 'task-reminders',
+      },
+    });
+  }
+
+  /* ============================
+     Listeners
+     ============================ */
   setupListeners(
-    onNotificationReceived: (notification: Notifications.Notification) => void,
-    onNotificationResponse: (response: Notifications.NotificationResponse) => void
-  ): void {
-    if (this.notificationListener) {
-      this.notificationListener.remove();
-    }
-    if (this.responseListener) {
-      this.responseListener.remove();
+    onReceive?: (n: Notifications.Notification) => void,
+    onResponse?: (r: Notifications.NotificationResponse) => void
+  ) {
+    this.notificationListener?.remove();
+    this.responseListener?.remove();
+
+    if (onReceive) {
+      this.notificationListener =
+        Notifications.addNotificationReceivedListener(onReceive);
     }
 
-    this.notificationListener = Notifications.addNotificationReceivedListener(onNotificationReceived);
-    this.responseListener = Notifications.addNotificationResponseReceivedListener(onNotificationResponse);
-  }
-
-  /**
-   * Remove listeners
-   */
-  removeListeners(): void {
-    if (this.notificationListener) {
-      this.notificationListener.remove();
-    }
-    if (this.responseListener) {
-      this.responseListener.remove();
+    if (onResponse) {
+      this.responseListener =
+        Notifications.addNotificationResponseReceivedListener(onResponse);
     }
   }
 
-  /**
-   * Get all pending notifications (for debugging)
-   */
-  async getPendingNotifications(): Promise<Notifications.NotificationRequest[]> {
-    return await Notifications.getAllScheduledNotificationsAsync();
-  }
-
-  /**
-   * Clear all badge count
-   */
-  async clearBadgeCount(): Promise<void> {
-    await Notifications.setBadgeCountAsync(0);
-  }
-
-  /**
-   * Refresh to-day reminders (call this when to-day tasks are updated)
-   */
-  async refreshToDayReminders(): Promise<void> {
-    await this.scheduleFromToDaySection();
+  removeListeners() {
+    this.notificationListener?.remove();
+    this.responseListener?.remove();
   }
 }
 

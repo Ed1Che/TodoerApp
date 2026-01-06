@@ -1,16 +1,6 @@
 // services/storage.ts
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const defaultLeisureItems = [
-  { id: 1, name: '30min Gaming', cost: 5, icon: '🎮', description: 'Enjoy 30 minutes of gaming time' },
-  { id: 2, name: 'Movie Night', cost: 10, icon: '🎬', description: 'Watch your favorite movie' },
-  { id: 3, name: 'Dessert Treat', cost: 7.5, icon: '🍰', description: 'Indulge in a sweet treat' },
-  { id: 4, name: 'Social Outing', cost: 15, icon: '🎉', description: 'Hang out with friends' },
-  { id: 5, name: 'Hobby Time', cost: 8, icon: '🎨', description: 'Spend time on your favorite hobby' },
-  { id: 6, name: 'Rest Day', cost: 20, icon: '😴', description: 'Take a well-deserved rest day' },
-  { id: 7, name: 'Shopping Spree', cost: 25, icon: '🛍️', description: 'Treat yourself to some shopping' },
-  { id: 8, name: 'Extra Sleep', cost: 6, icon: '🌙', description: 'Sleep in an extra hour' },
-];
 
 interface StorageInterface {
   get(key: string, defaultValue?: any): Promise<any>;
@@ -68,6 +58,7 @@ async initializeDefaults(): Promise<void> {
 
       // Initialize with empty arrays/objects
       await this.set('events', []);
+      await this.set('eventPrepTasks', []);
       await this.set('goals', []);
       await this.set('weeklyFactors', {});
       await this.set('dailyTasks', []);
@@ -75,7 +66,7 @@ async initializeDefaults(): Promise<void> {
       await this.set('purchaseHistory', []);
 
       // ✅ Newly added defaults
-      await this.set('leisureItems', defaultLeisureItems);
+      await this.set('leisureItems', []);
       await this.set('purchases', []);
       await this.set('taskReminders', []);
 

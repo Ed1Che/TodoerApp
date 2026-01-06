@@ -18,17 +18,14 @@ interface Reward {
   cost: number;
   icon: string;
   description: string;
+  duration?: number;
 }
 
 const REWARDS: Reward[] = [
-  { id: 1, name: '30min Gaming', cost: 5, icon: '🎮', description: 'Enjoy 30 minutes of gaming time' },
-  { id: 2, name: 'Movie Night', cost: 10, icon: '🎬', description: 'Watch your favorite movie' },
-  { id: 3, name: 'Dessert Treat', cost: 7.5, icon: '🍰', description: 'Indulge in a sweet treat' },
-  { id: 4, name: 'Social Outing', cost: 15, icon: '🎉', description: 'Hang out with friends' },
-  { id: 5, name: 'Hobby Time', cost: 8, icon: '🎨', description: 'Spend time on your favorite hobby' },
-  { id: 6, name: 'Rest Day', cost: 20, icon: '😴', description: 'Take a well-deserved rest day' },
-  { id: 7, name: 'Shopping Spree', cost: 25, icon: '🛍️', description: 'Treat yourself to some shopping' },
-  { id: 8, name: 'Extra Sleep', cost: 6, icon: '🌙', description: 'Sleep in an extra hour' },
+  { id: 1, name: 'Gaming', cost: 5, icon: '🎮', description: 'Enjoy 30 minutes of gaming time' , duration: 30},
+  { id: 2, name: 'Movie Night', cost: 10, icon: '🎬', description: 'Watch your favorite movie', duration: 120 },
+  { id: 6, name: 'Rest Day', cost: 50, icon: '😴', description: 'Take a well-deserved rest day' , duration: 660 },
+  { id: 8, name: 'Extra Sleep', cost: 6, icon: '🌙', description: 'Sleep in an extra hour', duration: 60 },
 ];
 
 export default function LeisureShopScreen() {
@@ -103,6 +100,13 @@ export default function LeisureShopScreen() {
                 <Text style={styles.rewardIcon}>{reward.icon}</Text>
                 <Text style={styles.rewardName}>{reward.name}</Text>
                 <Text style={styles.rewardDescription}>{reward.description}</Text>
+                  {reward.duration && (
+                    <View style={styles.metaItem}>
+                      <Text style={styles.metaIcon}>⏱️</Text>
+                       <Text style={styles.metaText}>{reward.duration}m</Text>
+                    </View>
+                  )}
+
 
                 <View style={styles.rewardFooter}>
                   <Text style={styles.rewardCost}>{reward.cost} pts</Text>
@@ -212,6 +216,22 @@ const styles = StyleSheet.create({
   rewardIcon: { fontSize: 42, textAlign: 'center' },
   rewardName: { fontWeight: '600', textAlign: 'center' },
   rewardDescription: { fontSize: 12, textAlign: 'center', color: '#636e72' },
+  metaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ecf0f1',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    justifyContent: 'center',
+  },
+  metaIcon: {
+    fontSize: 12,
+  },
+  metaText: {
+    fontSize: 12,
+    color: '#7f8c8d',
+  },
 
   rewardFooter: {
     marginTop: 8,

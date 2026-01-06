@@ -20,7 +20,7 @@ import { storage } from '../services/storage';
 export default function AddGoalScreen() {
   const router = useRouter();
   const [description, setDescription] = useState('');
-  const [preferredTime, setPreferredTime] = useState<'morning' | 'evening' | 'night'>('morning');
+  const [preferredTime, setPreferredTime] = useState<'morning-early' |'morning-mid'|'morning-late'|'afternoon-early'|'afternoon-mid'|'afternoon-late'| 'evening-early' | 'evening-mid' | 'evening-late'>('morning-early');
   const [endDate, setEndDate] = useState(new Date(Date.now() + 90 * 24 * 60 * 60 * 1000));
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [sector, setSector] = useState('Academic');
@@ -154,23 +154,67 @@ export default function AddGoalScreen() {
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Preferred Time</Text>
             <View style={styles.timeButtonGroup}>
-              {(['morning', 'evening', 'night'] as const).map((time) => (
-                <TouchableOpacity
-                  key={time}
-                  style={[styles.timeButton, preferredTime === time && styles.timeButtonActive]}
-                  onPress={() => setPreferredTime(time)}
-                >
-                  <Text
-                    style={[
-                      styles.timeButtonText,
-                      preferredTime === time && styles.timeButtonTextActive,
-                    ]}
+              {/* Morning */}
+              <View style={styles.timeSection}>
+                {(['morning-early', 'morning-mid', 'morning-late'] as const).map((time) => (
+                  <TouchableOpacity
+                    key={time}
+                    style={[styles.timeButton, preferredTime === time && styles.timeButtonActive]}
+                    onPress={() => setPreferredTime(time)}
                   >
-                    {time.charAt(0).toUpperCase() + time.slice(1)}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+                    <Text
+                      style={[
+                        styles.timeButtonText,
+                        preferredTime === time && styles.timeButtonTextActive,
+                      ]}
+                    >
+                      {time.charAt(0).toUpperCase() + time.slice(1)}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {/* Afternoon */}
+              <View style={styles.timeSection}>
+                {(['afternoon-early', 'afternoon-mid', 'afternoon-late'] as const).map((time) => (
+                  <TouchableOpacity
+                    key={time}
+                    style={[styles.timeButton, preferredTime === time && styles.timeButtonActive]}
+                    onPress={() => setPreferredTime(time)}
+                  >
+                    <Text
+                      style={[
+                        styles.timeButtonText,
+                        preferredTime === time && styles.timeButtonTextActive,
+                      ]}
+                    >
+                      {time.charAt(0).toUpperCase() + time.slice(1)}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {/* Evening */}
+              <View style={styles.timeSection}>
+                {(['evening-early', 'evening-mid', 'evening-late'] as const).map((time) => (
+                  <TouchableOpacity
+                    key={time}
+                    style={[styles.timeButton, preferredTime === time && styles.timeButtonActive]}
+                    onPress={() => setPreferredTime(time)}
+                  >
+                    <Text
+                      style={[
+                        styles.timeButtonText,
+                        preferredTime === time && styles.timeButtonTextActive,
+                      ]}
+                    >
+                      {time.charAt(0).toUpperCase() + time.slice(1)}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
             </View>
+
           </View>
 
           {/* End Date */}
@@ -383,7 +427,8 @@ const styles = StyleSheet.create({
   label: { fontSize: 14, fontWeight: '600', color: '#2d3436', marginBottom: 8 },
   input: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#ced4da', borderRadius: 12, padding: 14, fontSize: 16, color: '#2d3436' },
   textArea: { minHeight: 80, textAlignVertical: 'top' },
-  timeButtonGroup: { flexDirection: 'row', gap: 8 },
+  timeButtonGroup: { flexDirection: 'column',
+  gap: 12, },
   timeButton: { flex: 1, backgroundColor: '#f1f3f5', paddingVertical: 12, borderRadius: 12, alignItems: 'center' },
   timeButtonActive: { backgroundColor: '#9b59b6' },
   timeButtonText: { fontSize: 14, fontWeight: '600', color: '#636e72' },
@@ -429,4 +474,12 @@ const styles = StyleSheet.create({
   submitButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
   regenerateButton: { backgroundColor: '#fff', borderWidth: 2, borderColor: '#5f27cd', padding: 12, borderRadius: 12, alignItems: 'center', marginTop: 12 },
   regenerateButtonText: { color: '#5f27cd', fontSize: 14, fontWeight: '600' },
+  timeSection: {
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  padding: 10,
+  marginVertical: 8,
+  borderRadius: 12,
+  backgroundColor: '#F3F4F6', // light container background
+},
 });

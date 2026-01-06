@@ -4,7 +4,7 @@ import { config } from './config';
 interface GoalBreakdownRequest {
   goalDescription: string;
   sector: string;
-  preferredTime: 'morning' | 'evening' | 'night';
+  preferredTime: 'morning-early' | 'morning-mid' | 'morning-late' | 'afternoon-early' | 'afternoon-mid' | 'afternoon-late' | 'evening-early' | 'evening-mid' | 'evening-late';
   endDate: string;
   timesPerWeek: number;
   dailyTimeAllocation: number; // in minutes
@@ -87,7 +87,7 @@ CRITICAL HARD RULES (NON-NEGOTIABLE)
   - Build progressively on the previous step
   - Include a habit stacking cue
 - Total duration of all steps MUST equal the user’s daily time allocation
-- Steps must align with the user’s preferred time (morning/evening/night)
+- Steps must align with the user’s preferred time (morning-early(5-8am) / morning-mid(8-10am) / morning-late(10-12pm)  / afternoon-early (12-2pm) / afternoon-mid (2-4pm)/ afternoon-late(4-6pm) / evening-early (6-7pm) / evening-mid (7-8pm) / evening-late(8-9pm))
 - Steps must be realistic for the stated frequency per week
 - Focus on **systems and habits**, not vague goals
 

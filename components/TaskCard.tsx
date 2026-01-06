@@ -1,4 +1,5 @@
-// components/TaskCard.tsx - Updated with file and photo attachment
+// components/TaskCard.tsx
+import DateTimePicker from '@react-native-community/datetimepicker';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import React, { useState } from 'react';
@@ -6,6 +7,8 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -13,613 +16,717 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { notificationService } from '../services/notificationService';
+import { storage } from '../services/storage';
 
 interface TaskCardProps {
-  task: {
-    id: string;
-    name: string;
-    startTime?: string;
-    endTime?: string;
-    type: string;
-    completed: boolean;
-    proof?: string;
-    attachments?: string[];
-    goalId?: string;
-    stepIndex?: number;
-    duration?: number;
-  };
+  task: any;
   onComplete: (task: any, proof: string, attachments: string[]) => void;
+  onTaskUpdate?: () => void;
 }
 
-export default function TaskCard({ task, onComplete }: TaskCardProps) {
-  const [showProof, setShowProof] = useState(false);
+export default function TaskCard({ task, onComplete, onTaskUpdate }: TaskCardProps) {
+  const [showProofModal, setShowProofModal] = useState(false);
+  const [showTimeEditModal, setShowTimeEditModal] = useState(false);
   const [proofText, setProofText] = useState('');
   const [attachments, setAttachments] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
 
-  const requestCameraPermission = async () => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert(
-        'Permission Required',
-        'Camera permission is needed to take photos'
-      );
-      return false;
+  const [editedTime, setEditedTime] = useState(
+    task.startTime ? parseTimeString(task.startTime) : new Date()
+  );
+  const [editedDuration, setEditedDuration] = useState(
+    task.duration?.toString() || '30'
+  );
+  const [showTimePicker, setShowTimePicker] = useState(false);
+
+  /* ---------------- Utils ---------------- */
+  function parseTimeString(timeStr: string): Date {
+    const date = new Date();
+    if (timeStr.includes(':')) {
+      const [h, m] = timeStr.split(':').map(Number);
+      date.setHours(h, m, 0, 0);
     }
-    return true;
+    return date;
+  }
+
+  function formatTime(date: Date) {
+    return `${date.getHours().toString().padStart(2, '0')}:${date
+      .getMinutes()
+      .toString()
+      .padStart(2, '0')}`;
+  }
+
+  const isOverdue = () =>
+    task.startTime &&
+    parseTimeString(task.startTime) < new Date() &&
+    !task.completed;
+
+  const getTaskColor = () => {
+    if (task.completed) return '#95a5a6';
+    if (isOverdue()) return '#e74c3c';
+    if (task.type === 'goal-step') return '#9b59b6';
+    if (task.type === 'event-prep') return '#e67e22';
+    return '#3498db';
   };
 
-  const requestMediaLibraryPermission = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert(
-        'Permission Required',
-        'Media library permission is needed to select photos'
+  /* ---------------- Time Edit ---------------- */
+  const handleQuickTimeEdit = () => {
+    setShowTimeEditModal(true);
+  };
+
+  const handleSaveTimeEdit = async () => {
+    try {
+      const tasks = await storage.get('dailyTasks', []);
+      const updated = tasks.map((t: any) =>
+        t.id === task.id
+          ? { ...t, startTime: formatTime(editedTime), duration: +editedDuration || 30 }
+          : t
       );
-      return false;
+
+      await storage.set('dailyTasks', updated);
+      
+      // Reschedule all To-day notifications
+      await notificationService.refreshToDayReminders();
+
+      setShowTimeEditModal(false);
+      onTaskUpdate?.();
+      Alert.alert('Success', 'Task time updated and notification rescheduled');
+    } catch (error) {
+      console.error('Error updating task time:', error);
+      Alert.alert('Error', 'Failed to update task time');
     }
-    return true;
+  };
+
+  const onTimeChange = (event: any, selectedTime?: Date) => {
+    setShowTimePicker(Platform.OS === 'ios');
+    if (selectedTime) {
+      setEditedTime(selectedTime);
+    }
+  };
+
+  /* ---------------- Attachments ---------------- */
+  const addAttachment = (uris: string[]) =>
+    setAttachments(prev => [...prev, ...uris]);
+
+  const removeAttachment = (index: number) => {
+    setAttachments(prev => prev.filter((_, i) => i !== index));
   };
 
   const takePhoto = async () => {
-    const hasPermission = await requestCameraPermission();
-    if (!hasPermission) return;
-
+    setUploading(true);
     try {
-      setUploading(true);
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [4, 3],
-        quality: 0.8,
-      });
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'Camera permission is required');
+        setUploading(false);
+        return;
+      }
 
-      if (!result.canceled && result.assets[0]) {
-        setAttachments([...attachments, result.assets[0].uri]);
+      const res = await ImagePicker.launchCameraAsync({ quality: 0.8 });
+      if (!res.canceled && res.assets[0]) {
+        addAttachment([res.assets[0].uri]);
       }
     } catch (error) {
       Alert.alert('Error', 'Failed to take photo');
-    } finally {
-      setUploading(false);
     }
+    setUploading(false);
   };
 
   const pickImage = async () => {
-    const hasPermission = await requestMediaLibraryPermission();
-    if (!hasPermission) return;
-
+    setUploading(true);
     try {
-      setUploading(true);
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'Photo library permission is required');
+        setUploading(false);
+        return;
+      }
+
+      const res = await ImagePicker.launchImageLibraryAsync({
         allowsMultipleSelection: true,
         quality: 0.8,
       });
-
-      if (!result.canceled && result.assets) {
-        const newUris = result.assets.map(asset => asset.uri);
-        setAttachments([...attachments, ...newUris]);
+      if (!res.canceled) {
+        addAttachment(res.assets.map(a => a.uri));
       }
     } catch (error) {
       Alert.alert('Error', 'Failed to pick image');
-    } finally {
-      setUploading(false);
     }
+    setUploading(false);
   };
 
   const pickDocument = async () => {
+    setUploading(true);
     try {
-      setUploading(true);
-      const result = await DocumentPicker.getDocumentAsync({
-        type: '*/*',
-        copyToCacheDirectory: true,
+      const res = await DocumentPicker.getDocumentAsync({ 
         multiple: true,
+        type: '*/*',
       });
-
-      if (!result.canceled && result.assets) {
-        const newUris = result.assets.map(asset => asset.uri);
-        setAttachments([...attachments, ...newUris]);
+      if (!res.canceled) {
+        addAttachment(res.assets.map(a => a.uri));
       }
     } catch (error) {
       Alert.alert('Error', 'Failed to pick document');
-    } finally {
-      setUploading(false);
     }
-  };
-
-  const removeAttachment = (index: number) => {
-    const updated = attachments.filter((_, i) => i !== index);
-    setAttachments(updated);
-  };
-
-  const showAttachmentOptions = () => {
-    Alert.alert(
-      'Add Proof',
-      'Choose an option to add proof of completion',
-      [
-        {
-          text: 'Take Photo',
-          onPress: takePhoto,
-        },
-        {
-          text: 'Choose from Gallery',
-          onPress: pickImage,
-        },
-        {
-          text: 'Attach File',
-          onPress: pickDocument,
-        },
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-      ]
-    );
+    setUploading(false);
   };
 
   const handleComplete = () => {
-    if (!proofText.trim() && attachments.length === 0) {
-      Alert.alert(
-        'Proof Required',
-        'Please add notes or attach proof of completion'
-      );
+    // Always show proof modal when clicking complete
+    setShowProofModal(true);
+  };
+
+  const completeTask = () => {
+    // Only validate if task explicitly requires proof
+    if (task.requiresProof && !proofText.trim() && attachments.length === 0) {
+      Alert.alert('Required', 'Please provide proof of completion (text or attachments)');
       return;
     }
-    onComplete(task, proofText, attachments);
-    setShowProof(false);
+    // Otherwise, allow completion with or without proof
+    onComplete(task, proofText.trim(), attachments);
+    setShowProofModal(false);
     setProofText('');
     setAttachments([]);
   };
 
-  const getFileType = (uri: string) => {
-    const extension = uri.split('.').pop()?.toLowerCase();
-    if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(extension || '')) {
-      return 'image';
-    }
-    return 'file';
-  };
-
-  const getFileName = (uri: string) => {
-    return uri.split('/').pop() || 'File';
-  };
-
+  /* ---------------- Render ---------------- */
   return (
-    <View
-      style={[
-        styles.container,
-        task.completed ? styles.completedContainer : styles.pendingContainer,
-      ]}
-    >
-      <View style={styles.header}>
-        <View style={styles.taskInfo}>
-          <Text
-            style={[
-              styles.taskName,
-              task.completed && styles.completedText,
-            ]}
-          >
-            {task.name}
-          </Text>
-          
-          {task.startTime && task.endTime && (
-            <Text style={styles.timeText}>
-              {task.startTime} - {task.endTime}
-            </Text>
-          )}
-          
-          {task.duration && (
-            <Text style={styles.durationText}>
-              ⏱️ {task.duration} minutes
-            </Text>
-          )}
-          
-          <View style={styles.badges}>
-            {task.type === 'goal-step' && (
-              <View style={styles.goalBadge}>
-                <Text style={styles.goalBadgeText}>Goal Task</Text>
-              </View>
+    <>
+      <View
+        style={[
+          styles.card,
+          { borderLeftColor: getTaskColor(), borderLeftWidth: 4 },
+          task.completed && styles.completedCard,
+        ]}
+      >
+        <View style={styles.cardContent}>
+          <View style={styles.taskInfo}>
+            <View style={styles.header}>
+              <Text style={[styles.taskName, task.completed && styles.completedText]}>
+                {task.name}
+              </Text>
+              {isOverdue() && !task.completed && (
+                <Text style={styles.overdueBadge}>⚠️ OVERDUE</Text>
+              )}
+            </View>
+
+            {task.description && (
+              <Text style={styles.description}>{task.description}</Text>
             )}
-            
-            {task.type === 'weekly-factor' && (
-              <View style={styles.weeklyBadge}>
-                <Text style={styles.weeklyBadgeText}>Weekly Task</Text>
-              </View>
+
+            <View style={styles.meta}>
+              {task.startTime && (
+                <View style={styles.metaItem}>
+                  <Text style={styles.metaIcon}>🕐</Text>
+                  <Text style={styles.metaText}>{task.startTime}</Text>
+                </View>
+              )}
+              {task.duration && (
+                <View style={styles.metaItem}>
+                  <Text style={styles.metaIcon}>⏱️</Text>
+                  <Text style={styles.metaText}>{task.duration}m</Text>
+                </View>
+              )}
+              {task.type && (
+                <View style={styles.typeBadge}>
+                  <Text style={styles.typeText}>
+                    {task.type === 'goal-step' && '🎯'}
+                    {task.type === 'event-prep' && '📅'}
+                    {task.type === 'weekly-factor' && '📆'}
+                    {task.type === 'leisure' && '🎮'}
+                    {' '}
+                    {task.type.replace('-', ' ')}
+                  </Text>
+                </View>
+              )}
+            </View>
+          </View>
+
+          <View style={styles.actions}>
+            {!task.completed && (
+              <>
+                <TouchableOpacity
+                  style={styles.actionButton}
+                  onPress={handleQuickTimeEdit}
+                >
+                  <Text style={styles.actionIcon}>🕐</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.actionButton, styles.completeButton]}
+                  onPress={handleComplete}
+                >
+                  <Text style={styles.actionIcon}>✓</Text>
+                </TouchableOpacity>
+              </>
             )}
-            
             {task.completed && (
-              <View style={styles.pointsBadge}>
-                <Text style={styles.pointsBadgeText}>+0.25 pts</Text>
+              <View style={styles.completedBadge}>
+                <Text style={styles.completedBadgeText}>✓ Done</Text>
               </View>
             )}
           </View>
         </View>
-
-        {!task.completed && (
-          <TouchableOpacity
-            style={styles.completeButton}
-            onPress={() => setShowProof(!showProof)}
-          >
-            <Text style={styles.completeButtonText}>Complete</Text>
-          </TouchableOpacity>
-        )}
       </View>
 
-      {showProof && !task.completed && (
-        <View style={styles.proofSection}>
-          {/* Text Input */}
-          <TextInput
-            style={styles.proofInput}
-            placeholder="Add notes about completion..."
-            placeholderTextColor="#95a5a6"
-            value={proofText}
-            onChangeText={setProofText}
-            multiline
-            numberOfLines={3}
-            textAlignVertical="top"
-          />
+      {/* Time Edit Modal */}
+      <Modal
+        visible={showTimeEditModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowTimeEditModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Edit Task Time</Text>
 
-          {/* Attachments Display */}
-          {attachments.length > 0 && (
-            <ScrollView 
-              horizontal 
-              showsHorizontalScrollIndicator={false}
-              style={styles.attachmentsScroll}
-            >
-              {attachments.map((uri, index) => (
-                <View key={index} style={styles.attachmentItem}>
-                  {getFileType(uri) === 'image' ? (
-                    <Image 
-                      source={{ uri }} 
-                      style={styles.attachmentImage}
-                      resizeMode="cover"
-                    />
-                  ) : (
-                    <View style={styles.fileAttachment}>
-                      <Text style={styles.fileIcon}>📄</Text>
-                      <Text style={styles.fileName} numberOfLines={1}>
-                        {getFileName(uri)}
-                      </Text>
-                    </View>
-                  )}
+            <View style={styles.editSection}>
+              <Text style={styles.label}>Task Name:</Text>
+              <Text style={styles.taskNameDisplay}>{task.name}</Text>
+            </View>
+
+            <View style={styles.editSection}>
+              <Text style={styles.label}>Scheduled Time:</Text>
+              <TouchableOpacity
+                style={styles.timeButton}
+                onPress={() => setShowTimePicker(true)}
+              >
+                <Text style={styles.timeButtonText}>
+                  🕐 {formatTime(editedTime)}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.editSection}>
+              <Text style={styles.label}>Duration (minutes):</Text>
+              <TextInput
+                style={styles.durationInput}
+                value={editedDuration}
+                onChangeText={setEditedDuration}
+                keyboardType="numeric"
+                placeholder="30"
+              />
+            </View>
+
+            {showTimePicker && (
+              <DateTimePicker
+                value={editedTime}
+                mode="time"
+                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                onChange={onTimeChange}
+              />
+            )}
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.cancelButton]}
+                onPress={() => setShowTimeEditModal(false)}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.saveButton]}
+                onPress={handleSaveTimeEdit}
+              >
+                <Text style={styles.saveButtonText}>Save & Reschedule</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Proof Modal (Optional) */}
+      <Modal
+        visible={showProofModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowProofModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <ScrollView contentContainerStyle={styles.modalScrollContent}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>Complete Task</Text>
+              <Text style={styles.modalSubtitle}>{task.name}</Text>
+
+              <View style={styles.proofSection}>
+                <Text style={styles.label}>
+                  Proof of completion {task.requiresProof ? '(required)' : '(optional)'}:
+                </Text>
+                <TextInput
+                  style={styles.proofInput}
+                  placeholder={
+                    task.requiresProof
+                      ? "Describe what you accomplished..."
+                      : "Add notes or proof (optional)..."
+                  }
+                  value={proofText}
+                  onChangeText={setProofText}
+                  multiline
+                  numberOfLines={4}
+                />
+              </View>
+
+              {/* Attachments Display */}
+              {attachments.length > 0 && (
+                <View style={styles.attachmentsSection}>
+                  <Text style={styles.label}>Attachments ({attachments.length}):</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    {attachments.map((uri, index) => (
+                      <View key={index} style={styles.attachmentContainer}>
+                        <Image source={{ uri }} style={styles.attachment} />
+                        <TouchableOpacity
+                          style={styles.removeAttachment}
+                          onPress={() => removeAttachment(index)}
+                        >
+                          <Text style={styles.removeText}>✕</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
+
+              {/* Attachment Options */}
+              <View style={styles.attachmentOptions}>
+                <Text style={styles.label}>Add proof (optional):</Text>
+                <View style={styles.attachmentButtons}>
                   <TouchableOpacity
-                    style={styles.removeAttachmentButton}
-                    onPress={() => removeAttachment(index)}
+                    style={styles.attachmentButton}
+                    onPress={takePhoto}
+                    disabled={uploading}
                   >
-                    <Text style={styles.removeAttachmentText}>✕</Text>
+                    <Text style={styles.attachmentIcon}>📷</Text>
+                    <Text style={styles.attachmentButtonText}>Camera</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.attachmentButton}
+                    onPress={pickImage}
+                    disabled={uploading}
+                  >
+                    <Text style={styles.attachmentIcon}>🖼️</Text>
+                    <Text style={styles.attachmentButtonText}>Photo</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.attachmentButton}
+                    onPress={pickDocument}
+                    disabled={uploading}
+                  >
+                    <Text style={styles.attachmentIcon}>📎</Text>
+                    <Text style={styles.attachmentButtonText}>File</Text>
                   </TouchableOpacity>
                 </View>
-              ))}
-            </ScrollView>
-          )}
 
-          {/* Add Attachment Button */}
-          <TouchableOpacity
-            style={styles.addAttachmentButton}
-            onPress={showAttachmentOptions}
-            disabled={uploading}
-          >
-            {uploading ? (
-              <ActivityIndicator color="#3498db" size="small" />
-            ) : (
-              <>
-                <Text style={styles.addAttachmentIcon}>📎</Text>
-                <Text style={styles.addAttachmentText}>
-                  Add Photo or File
-                </Text>
-              </>
-            )}
-          </TouchableOpacity>
-
-          {/* Action Buttons */}
-          <TouchableOpacity
-            style={styles.confirmButton}
-            onPress={handleComplete}
-            disabled={uploading}
-          >
-            <Text style={styles.confirmButtonText}>
-              Confirm Completion (+0.25 pts)
-            </Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity
-            style={styles.cancelButton}
-            onPress={() => {
-              setShowProof(false);
-              setProofText('');
-              setAttachments([]);
-            }}
-          >
-            <Text style={styles.cancelButtonText}>Cancel</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {task.completed && (
-        <View style={styles.completedProofSection}>
-          {task.proof && (
-            <>
-              <Text style={styles.proofLabel}>Notes:</Text>
-              <Text style={styles.proofText}>{task.proof}</Text>
-            </>
-          )}
-          
-          {task.attachments && task.attachments.length > 0 && (
-            <>
-              <Text style={styles.proofLabel}>Attachments:</Text>
-              <ScrollView 
-                horizontal 
-                showsHorizontalScrollIndicator={false}
-                style={styles.completedAttachmentsScroll}
-              >
-                {task.attachments.map((uri, index) => (
-                  <View key={index} style={styles.completedAttachmentItem}>
-                    {getFileType(uri) === 'image' ? (
-                      <Image 
-                        source={{ uri }} 
-                        style={styles.completedAttachmentImage}
-                        resizeMode="cover"
-                      />
-                    ) : (
-                      <View style={styles.completedFileAttachment}>
-                        <Text style={styles.fileIcon}>📄</Text>
-                        <Text style={styles.fileName} numberOfLines={1}>
-                          {getFileName(uri)}
-                        </Text>
-                      </View>
-                    )}
+                {uploading && (
+                  <View style={styles.uploadingContainer}>
+                    <ActivityIndicator size="small" color="#3498db" />
+                    <Text style={styles.uploadingText}>Uploading...</Text>
                   </View>
-                ))}
-              </ScrollView>
-            </>
-          )}
+                )}
+              </View>
+
+              <View style={styles.modalActions}>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.cancelButton]}
+                  onPress={() => {
+                    setShowProofModal(false);
+                    setProofText('');
+                    setAttachments([]);
+                  }}
+                >
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.saveButton]}
+                  onPress={completeTask}
+                  disabled={uploading}
+                >
+                  <Text style={styles.saveButtonText}>Complete</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </ScrollView>
         </View>
-      )}
-    </View>
+      </Modal>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  card: {
+    backgroundColor: '#fff',
     borderRadius: 12,
     padding: 12,
     marginBottom: 12,
-    borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
-  pendingContainer: {
-    backgroundColor: '#f8f9fa',
-    borderColor: '#dee2e6',
+  completedCard: {
+    opacity: 0.6,
   },
-  completedContainer: {
-    backgroundColor: '#d4edda',
-    borderColor: '#c3e6cb',
-  },
-  header: {
+  cardContent: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
   },
   taskInfo: {
     flex: 1,
-    marginRight: 12,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
   },
   taskName: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#2d3436',
-    marginBottom: 4,
+    color: '#2c3e50',
+    flex: 1,
   },
   completedText: {
     textDecorationLine: 'line-through',
-    color: '#636e72',
-  },
-  timeText: {
-    fontSize: 12,
-    color: '#636e72',
-    marginBottom: 2,
-  },
-  durationText: {
-    fontSize: 11,
     color: '#95a5a6',
-    marginBottom: 6,
   },
-  badges: {
+  overdueBadge: {
+    fontSize: 10,
+    color: '#e74c3c',
+    fontWeight: 'bold',
+    marginLeft: 8,
+  },
+  description: {
+    fontSize: 13,
+    color: '#7f8c8d',
+    marginBottom: 8,
+  },
+  meta: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 6,
+    gap: 8,
   },
-  goalBadge: {
-    backgroundColor: '#e8daef',
+  metaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ecf0f1',
     paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingVertical: 4,
     borderRadius: 8,
   },
-  goalBadgeText: {
-    fontSize: 10,
-    color: '#6c3483',
-    fontWeight: '600',
+  metaIcon: {
+    fontSize: 12,
+    marginRight: 4,
   },
-  weeklyBadge: {
-    backgroundColor: '#d6eaf8',
+  metaText: {
+    fontSize: 12,
+    color: '#7f8c8d',
+  },
+  typeBadge: {
+    backgroundColor: '#e8f4fd',
     paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingVertical: 4,
     borderRadius: 8,
   },
-  weeklyBadgeText: {
-    fontSize: 10,
-    color: '#1f618d',
-    fontWeight: '600',
+  typeText: {
+    fontSize: 11,
+    color: '#3498db',
+    fontWeight: '500',
   },
-  pointsBadge: {
-    backgroundColor: '#d5f4e6',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
+  actions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginLeft: 12,
   },
-  pointsBadgeText: {
-    fontSize: 10,
-    color: '#0e6251',
-    fontWeight: '600',
+  actionButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#ecf0f1',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   completeButton: {
-    backgroundColor: '#3498db',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
+    backgroundColor: '#27ae60',
   },
-  completeButtonText: {
+  actionIcon: {
+    fontSize: 20,
+  },
+  completedBadge: {
+    backgroundColor: '#27ae60',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    alignSelf: 'center',
+  },
+  completedBadgeText: {
     color: '#fff',
     fontSize: 12,
     fontWeight: '600',
   },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+  },
+  modalScrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 24,
+    maxWidth: 500,
+    alignSelf: 'center',
+    width: '100%',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 8,
+    color: '#2c3e50',
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: '#7f8c8d',
+    marginBottom: 16,
+  },
+  editSection: {
+    marginBottom: 16,
+  },
+  label: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#2c3e50',
+    marginBottom: 8,
+  },
+  taskNameDisplay: {
+    fontSize: 16,
+    color: '#7f8c8d',
+    paddingVertical: 8,
+  },
+  timeButton: {
+    backgroundColor: '#3498db',
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  timeButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  durationInput: {
+    backgroundColor: '#ecf0f1',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    borderWidth: 1,
+    borderColor: '#bdc3c7',
+  },
   proofSection: {
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#dee2e6',
+    marginBottom: 16,
   },
   proofInput: {
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#ced4da',
+    backgroundColor: '#ecf0f1',
     borderRadius: 8,
     padding: 12,
     fontSize: 14,
-    color: '#2d3436',
-    minHeight: 80,
-    marginBottom: 12,
-  },
-  attachmentsScroll: {
-    marginBottom: 12,
-  },
-  attachmentItem: {
-    position: 'relative',
-    marginRight: 8,
-  },
-  attachmentImage: {
-    width: 100,
-    height: 100,
-    borderRadius: 8,
-    backgroundColor: '#f1f3f5',
-  },
-  fileAttachment: {
-    width: 100,
-    height: 100,
-    backgroundColor: '#f1f3f5',
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
+    minHeight: 100,
+    textAlignVertical: 'top',
     borderWidth: 1,
-    borderColor: '#dee2e6',
+    borderColor: '#bdc3c7',
   },
-  fileIcon: {
-    fontSize: 32,
-    marginBottom: 4,
+  attachmentsSection: {
+    marginBottom: 16,
   },
-  fileName: {
-    fontSize: 10,
-    color: '#636e72',
-    textAlign: 'center',
-    paddingHorizontal: 4,
+  attachmentContainer: {
+    position: 'relative',
+    marginRight: 12,
   },
-  removeAttachmentButton: {
+  attachment: {
+    width: 80,
+    height: 80,
+    borderRadius: 8,
+  },
+  removeAttachment: {
     position: 'absolute',
-    top: -6,
-    right: -6,
+    top: -8,
+    right: -8,
     backgroundColor: '#e74c3c',
     width: 24,
     height: 24,
     borderRadius: 12,
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  removeAttachmentText: {
+  removeText: {
     color: '#fff',
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: 'bold',
   },
-  addAttachmentButton: {
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#3498db',
-    borderStyle: 'dashed',
+  attachmentOptions: {
+    marginBottom: 16,
+  },
+  attachmentButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  attachmentButton: {
+    flex: 1,
+    backgroundColor: '#ecf0f1',
     padding: 12,
     borderRadius: 8,
+    alignItems: 'center',
+  },
+  attachmentIcon: {
+    fontSize: 24,
+    marginBottom: 4,
+  },
+  attachmentButtonText: {
+    fontSize: 12,
+    color: '#2c3e50',
+    fontWeight: '500',
+  },
+  uploadingContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 12,
+    marginTop: 12,
+    padding: 8,
   },
-  addAttachmentIcon: {
-    fontSize: 20,
-    marginRight: 8,
-  },
-  addAttachmentText: {
-    color: '#3498db',
+  uploadingText: {
+    marginLeft: 8,
+    color: '#7f8c8d',
     fontSize: 14,
-    fontWeight: '600',
   },
-  confirmButton: {
-    backgroundColor: '#27ae60',
-    padding: 12,
+  modalActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 16,
+  },
+  modalButton: {
+    flex: 1,
+    padding: 14,
     borderRadius: 8,
     alignItems: 'center',
-    marginBottom: 6,
-  },
-  confirmButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
   },
   cancelButton: {
-    backgroundColor: '#95a5a6',
-    padding: 10,
-    borderRadius: 8,
-    alignItems: 'center',
+    backgroundColor: '#ecf0f1',
+  },
+  saveButton: {
+    backgroundColor: '#27ae60',
   },
   cancelButtonText: {
+    color: '#7f8c8d',
+    fontWeight: '600',
+    fontSize: 16,
+  },
+  saveButtonText: {
     color: '#fff',
-    fontSize: 12,
     fontWeight: '600',
-  },
-  completedProofSection: {
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#c3e6cb',
-  },
-  proofLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#155724',
-    marginBottom: 4,
-  },
-  proofText: {
-    fontSize: 12,
-    color: '#155724',
-    fontStyle: 'italic',
-    lineHeight: 18,
-    marginBottom: 8,
-  },
-  completedAttachmentsScroll: {
-    marginTop: 4,
-  },
-  completedAttachmentItem: {
-    marginRight: 8,
-  },
-  completedAttachmentImage: {
-    width: 80,
-    height: 80,
-    borderRadius: 8,
-    backgroundColor: '#d4edda',
-  },
-  completedFileAttachment: {
-    width: 80,
-    height: 80,
-    backgroundColor: '#d4edda',
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#c3e6cb',
+    fontSize: 16,
   },
 });

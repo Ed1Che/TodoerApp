@@ -1,11 +1,14 @@
+// app/(tabs)/index.tsx
 import { useNavigation, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
   Alert,
+  Modal,
   RefreshControl,
   SafeAreaView,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TouchableOpacity,
   View,
@@ -25,19 +28,39 @@ export function HomeScreen() {
   const [dailyTasks, setDailyTasks] = useState<any[]>([]);
   const [leisurePoints, setLeisurePoints] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [autoScheduleReminders, setAutoScheduleReminders] = useState(true);
+  const [pendingNotificationsCount, setPendingNotificationsCount] = useState(0);
 
   useEffect(() => {
     loadData();
+    loadSettings();
   }, []);
 
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', async () => {
       await loadData();
-      await notificationService.refreshToDayReminders();
+      if (autoScheduleReminders) {
+        await notificationService.refreshToDayReminders();
+      }
     });
 
     return unsubscribe;
-  }, [navigation]);
+  }, [navigation, autoScheduleReminders]);
+
+  const loadSettings = async () => {
+    const setting = await storage.get('autoScheduleReminders', true);
+    setAutoScheduleReminders(setting);
+  };
+
+  const saveSettings = async (value: boolean) => {
+    setAutoScheduleReminders(value);
+    await storage.set('autoScheduleReminders', value);
+    if (value) {
+      await notificationService.refreshToDayReminders();
+    }
+  };
+
 
   const loadData = async () => {
     try {
@@ -53,8 +76,7 @@ export function HomeScreen() {
       setDailyTasks(dt || []);
       setLeisurePoints(lp || 0);
 
-      await notificationService.refreshToDayReminders();
-    } catch (error) {
+          } catch (error) {
       console.error('Error loading data:', error);
     }
   };
@@ -70,7 +92,9 @@ export function HomeScreen() {
     setDailyTasks(schedule);
     await storage.set('dailyTasks', schedule);
 
-    await notificationService.refreshToDayReminders();
+    if (autoScheduleReminders) {
+      await notificationService.refreshToDayReminders();
+    }
 
     Alert.alert('Generated', `Created ${schedule.length} tasks for today`);
   };
@@ -110,7 +134,10 @@ export function HomeScreen() {
         }
       }
 
-      await notificationService.refreshToDayReminders();
+      // Refresh reminders to remove completed task notifications
+      if (autoScheduleReminders) {
+        await notificationService.refreshToDayReminders();
+      }
 
       Alert.alert(
         'Completed! 🎉',
@@ -120,6 +147,15 @@ export function HomeScreen() {
       console.error('Error completing task:', error);
       Alert.alert('Error', 'Failed to complete task');
     }
+  };
+
+  const handleTaskUpdate = async () => {
+    await loadData();
+  };
+
+  const testNotifications = async () => {
+    await notificationService.sendTestNotification();
+    Alert.alert('Test Sent', 'Check your notifications in 2 seconds!');
   };
 
   const getEventColor = (eventDate: string) => {
@@ -143,6 +179,8 @@ export function HomeScreen() {
   };
 
   const sortedEvents = sortEventsByPriority(events);
+  const incompleteTasks = dailyTasks.filter(t => !t.completed);
+  const completedTasks = dailyTasks.filter(t => t.completed);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -151,7 +189,15 @@ export function HomeScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
-        <Text style={styles.title}>To-doer</Text>
+        <View style={styles.header}>
+          <Text style={styles.title}>To-doer</Text>
+          <TouchableOpacity
+            style={styles.settingsButton}
+            onPress={() => setShowSettings(true)}
+          >
+            <Text style={styles.settingsIcon}>⚙️</Text>
+          </TouchableOpacity>
+        </View>
 
         {/* Events */}
         <View style={styles.card}>
@@ -195,30 +241,52 @@ export function HomeScreen() {
           </ScrollView>
         </View>
 
-        {/* Today */}
+        {/* Today's Tasks */}
         <View style={styles.card}>
           <View style={styles.cardHeader}>
-            <Text style={styles.cardTitle}> To-day</Text>
+            <Text style={styles.cardTitle}>✅ To-day</Text>
             <TouchableOpacity onPress={generate} style={styles.generateButton}>
               <Text style={styles.generateButtonText}>Generate</Text>
             </TouchableOpacity>
           </View>
 
-          <ScrollView style={styles.taskScrollContainer} nestedScrollEnabled>
-            {dailyTasks.length === 0 ? (
-              <Text style={styles.emptyText}>
-                Click Generate to create today's tasks
-              </Text>
-            ) : (
-              dailyTasks.map(task => (
-                <TaskCard
-                  key={task.id}
-                  task={task}
-                  onComplete={handleComplete}
-                />
-              ))
-            )}
-          </ScrollView>
+          {incompleteTasks.length > 0 && (
+            <View style={styles.taskSection}>
+              <Text style={styles.sectionLabel}>Pending ({incompleteTasks.length})</Text>
+              <ScrollView style={styles.taskScrollContainer} nestedScrollEnabled>
+                {incompleteTasks.map(task => (
+                  <TaskCard
+                    key={task.id}
+                    task={task}
+                    onComplete={handleComplete}
+                    onTaskUpdate={handleTaskUpdate}
+                  />
+                ))}
+              </ScrollView>
+            </View>
+          )}
+
+          {completedTasks.length > 0 && (
+            <View style={styles.taskSection}>
+              <Text style={styles.sectionLabel}>Completed ({completedTasks.length})</Text>
+              <ScrollView style={styles.taskScrollContainer} nestedScrollEnabled>
+                {completedTasks.map(task => (
+                  <TaskCard
+                    key={task.id}
+                    task={task}
+                    onComplete={handleComplete}
+                    onTaskUpdate={handleTaskUpdate}
+                  />
+                ))}
+              </ScrollView>
+            </View>
+          )}
+
+          {dailyTasks.length === 0 && (
+            <Text style={styles.emptyText}>
+              Click Generate to create today's tasks
+            </Text>
+          )}
         </View>
 
         {/* Goals */}
@@ -262,19 +330,98 @@ export function HomeScreen() {
           </TouchableOpacity>
         </View>
       </ScrollView>
+
+      {/* Settings Modal */}
+      <Modal
+        visible={showSettings}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowSettings(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>⚙️ Settings</Text>
+
+            <View style={styles.settingRow}>
+              <View style={styles.settingInfo}>
+                <Text style={styles.settingLabel}>Auto-Schedule Reminders</Text>
+                <Text style={styles.settingDescription}>
+                  Automatically create notifications for To-day tasks
+                </Text>
+              </View>
+              <Switch
+                value={autoScheduleReminders}
+                onValueChange={saveSettings}
+                trackColor={{ false: '#767577', true: '#81b0ff' }}
+                thumbColor={autoScheduleReminders ? '#007AFF' : '#f4f3f4'}
+              />
+            </View>
+
+            <TouchableOpacity
+              style={styles.testButton}
+              onPress={testNotifications}
+            >
+              <Text style={styles.testButtonText}>🔔 Test Notifications</Text>
+            </TouchableOpacity>
+
+            <View style={styles.infoBox}>
+              <Text style={styles.infoSubtext}>
+                Reminders appear 5 minutes before task time
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={() => setShowSettings(false)}
+            >
+              <Text style={styles.closeButtonText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
 
 export default HomeScreen;
 
-/* ---------------- STYLES (UNCHANGED) ---------------- */
-
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f8f9fa', padding: 16 },
-  title: { fontSize: 32, fontWeight: 'bold', marginBottom: 20 },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  title: { fontSize: 32, fontWeight: 'bold' },
+  settingsButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  settingsIcon: { fontSize: 24 },
+  notificationBanner: {
+    backgroundColor: '#e8f4fd',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+  notificationBannerText: {
+    fontSize: 14,
+    color: '#3498db',
+    fontWeight: '600',
+    textAlign: 'center',
+  },
   card: { backgroundColor: '#fff', borderRadius: 16, padding: 16, marginBottom: 16 },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between' },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
   cardTitle: { fontSize: 20, fontWeight: '600' },
   addButton: { backgroundColor: '#3498db', width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   addButtonText: { color: '#fff', fontSize: 24 },
@@ -282,19 +429,104 @@ const styles = StyleSheet.create({
   eventCard: { width: 280, padding: 12, borderRadius: 12 },
   eventTitle: { color: '#fff', fontWeight: '600' },
   eventDate: { color: '#fff', fontSize: 12 },
-  priorityBadge: { backgroundColor: 'rgba(255,255,255,0.3)', padding: 6, borderRadius: 8 },
+  priorityBadge: { backgroundColor: 'rgba(255,255,255,0.3)', padding: 6, borderRadius: 8, marginTop: 8 },
   priorityText: { color: '#fff' },
+  taskSection: { marginBottom: 16 },
+  sectionLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#7f8c8d',
+    marginBottom: 8,
+  },
   taskScrollContainer: { maxHeight: 400 },
   generateButton: { backgroundColor: '#27ae60', padding: 8, borderRadius: 16 },
-  generateButtonText: { color: '#fff' },
+  generateButtonText: { color: '#fff', fontWeight: '600' },
   emptyText: { textAlign: 'center', color: '#95a5a6', paddingVertical: 20 },
   goalsGrid: { flexDirection: 'row', gap: 8 },
   goalButton: { flex: 1, backgroundColor: '#9b59b6', padding: 16, borderRadius: 12 },
   reviewButton: { backgroundColor: '#5f27cd' },
   goalButtonText: { color: '#fff', fontWeight: '600', textAlign: 'center' },
-  quickActionsGrid: { flexDirection: 'row', gap: 16 },
+  quickActionsGrid: { flexDirection: 'row', gap: 16, marginBottom: 20 },
   quickActionCard: { flex: 1, backgroundColor: '#fff', padding: 16, borderRadius: 16, alignItems: 'center' },
   quickActionIcon: { fontSize: 40 },
-  quickActionText: { fontSize: 12, fontWeight: '600' },
-  pointsText: { fontSize: 10, color: '#95a5a6' },
+  quickActionText: { fontSize: 12, fontWeight: '600', marginTop: 8 },
+  pointsText: { fontSize: 10, color: '#95a5a6', marginTop: 4 },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+  },
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 20,
+  },
+  settingRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#ecf0f1',
+  },
+  settingInfo: {
+    flex: 1,
+    marginRight: 16,
+  },
+  settingLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#2c3e50',
+    marginBottom: 4,
+  },
+  settingDescription: {
+    fontSize: 13,
+    color: '#7f8c8d',
+  },
+  testButton: {
+    backgroundColor: '#3498db',
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  testButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  infoBox: {
+    backgroundColor: '#ecf0f1',
+    padding: 16,
+    borderRadius: 12,
+    marginTop: 16,
+  },
+  infoText: {
+    fontSize: 14,
+    color: '#2c3e50',
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  infoSubtext: {
+    fontSize: 12,
+    color: '#7f8c8d',
+  },
+  closeButton: {
+    backgroundColor: '#ecf0f1',
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  closeButtonText: {
+    color: '#2c3e50',
+    fontSize: 16,
+    fontWeight: '600',
+  },
 });
