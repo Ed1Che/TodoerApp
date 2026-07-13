@@ -123,7 +123,7 @@ The app has no server of its own. External APIs used:
 
 ## Contributing
 
-1. Branch from `master`.
+1. Branch from `main`.
 2. Keep `npx tsc --noEmit` and `npm run lint` clean.
 3. Follow the existing conventions: PascalCase component files, expo-router route files under `app/`, design tokens from `constants/theme.ts` (no hardcoded hex colors in screens).
 
